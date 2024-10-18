@@ -31,6 +31,7 @@ Here is the Feature Roadmap:
          4. Max Prompt Size
          5. Knowledge Cutoff Date
          6. LM Capabilities/Profile
+         7. Max Completion Token Limit
     2. Synchronous Completion
     3. Asynchronous/Streaming Completion
 2. Conversation API
