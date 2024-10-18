@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "us.daconta.xlmeco.grpc";
+option java_outer_classname = "LlmEcoApi";
+
+service XlmEcosystemService {
+    // Chat API, accepts a request with a message and returns a response.
+    rpc Chat (ChatRequest) returns (ChatResponse);
+}
+
+message ChatRequest {
+    string prompt = 1;
+    string model = 2; // Specify whether it's OpenAI, Anthropic, or Gemini
+}
+
+message ChatResponse {
+    string completion = 1;
+}
