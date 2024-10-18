@@ -25,11 +25,12 @@ several months so make sure you check back to get the latest.
 Here is the Feature Roadmap:
 1. Chat API
     1. LM Metadata
-         1. Model name
-         2. Type (LLM, SLM, etc.)
-         3. Max Prompt Size
-         4. Knowledge Cutoff Date
-         5. LM Capabilities/Profile
+         1. Provider Name
+         2. Model name
+         3. Type (LLM, SLM, etc.)
+         4. Max Prompt Size
+         5. Knowledge Cutoff Date
+         6. LM Capabilities/Profile
     2. Synchronous Completion
     3. Asynchronous/Streaming Completion
 2. Conversation API
