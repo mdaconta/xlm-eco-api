@@ -50,6 +50,7 @@ Here is the Feature Roadmap:
         4. Formulas
         5. Image
         6. Tables
+        7. JSON
 3. LM Customization API
     1. Token Probabilities API
     2. LM Parameters API
