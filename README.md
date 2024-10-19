@@ -81,6 +81,7 @@ Here is the Feature Roadmap:
         10. Code 
     2. Chunk metadata
     3. Vector DB API
+    4. Citations
 7. Prompt Memory API
 8. Prompt Classification API
 9. Guardrails API
