@@ -116,7 +116,7 @@ java -jar ./target/xlm-eco-api-1.0-SNAPSHOT.jar
 
 To run the java test gRPC client you type:
 ```bash
-java -cp ./target/xlm-eco-api-1.0-SNAPSHOT.jar us.daconta.xlmeco.GrpcXlmClient gemini "What is the Capital of France?"
+java -cp ./target/xlm-eco-api-1.0-SNAPSHOT.jar us.daconta.xlmeco.GrpcClient gemini "What is the Capital of France?"
 ```
 
 Note: there will be a client created for every language supported by gRPC (Python, C#, C, Go, Rust, etc.)
