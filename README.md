@@ -132,4 +132,4 @@ Note: there will be a client created for every language supported by gRPC (Pytho
 
 ## Conclusion 
 
-Feedback on the project is welcome.  You can email me at michael dot daconta at gmail dot com.
+Feedback on the project is welcome.  You can contact me via the contact form [here](https://www.daconta.us/Articles/ContactForm.html).
