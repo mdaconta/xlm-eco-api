@@ -1,8 +1,11 @@
+// Version 0.1
+
 syntax = "proto3";
 
 option java_multiple_files = true;
 option java_package = "us.daconta.xlmeco.grpc";
 option java_outer_classname = "LlmEcoApi";
+//option python_package = "generated";
 
 service XlmEcosystemService {
     // Chat API, accepts a request with a message and returns a response.
