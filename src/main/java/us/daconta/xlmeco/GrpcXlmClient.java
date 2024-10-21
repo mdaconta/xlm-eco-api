@@ -6,7 +6,7 @@ import us.daconta.xlmeco.grpc.XlmEcosystemServiceGrpc;
 import us.daconta.xlmeco.grpc.ChatRequest;
 import us.daconta.xlmeco.grpc.ChatResponse;
 
-public class GrpcClient {
+public class GrpcXlmClient {
 
     public static void main(String[] args) {
         if (args.length < 2) {

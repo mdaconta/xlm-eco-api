@@ -14,6 +14,8 @@ import com.google.cloud.vertexai.api.GenerateContentResponse;
 import com.google.cloud.vertexai.generativeai.GenerativeModel;
 import com.google.cloud.vertexai.generativeai.ResponseHandler;
 import java.io.IOException;
+import org.json.JSONObject;
+import org.json.JSONArray;
 
 public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosystemServiceImplBase {
 
@@ -74,7 +76,15 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
             if (!response.isSuccessful()) {
                 return "Error: " + response.body().string();
             }
-            return response.body().string();  // Return the response body
+
+
+            // Parse the response to extract the 'content' field
+            String responseBody = response.body().string();
+            JSONObject jsonResponse = new JSONObject(responseBody);
+            JSONArray choices = jsonResponse.getJSONArray("choices");
+            String content = choices.getJSONObject(0).getJSONObject("message").getString("content");
+
+            return content.trim();  // Return only the content field
         }
     }
 

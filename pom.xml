@@ -71,10 +71,33 @@
             <artifactId>google-cloud-vertexai</artifactId>
             <version>1.12.0</version>
         </dependency>
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>20230227</version>
+        </dependency>
+
     </dependencies>
 
     <build>
         <plugins>
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.4.0</version>
+                <configuration>
+                    <filesets>
+                        <!-- Fileset for the python_client/generated directory -->
+                        <fileset>
+                            <directory>${project.basedir}/python_client/generated</directory>
+                            <includes>
+                                <include>**/*</include>
+                            </includes>
+                            <followSymlinks>false</followSymlinks>
+                        </fileset>
+                    </filesets>
+                </configuration>
+            </plugin>
+
             <!-- OS detection for Protobuf -->
             <plugin>
                 <groupId>kr.motd.maven</groupId>
@@ -107,6 +130,59 @@
                     </execution>
                 </executions>
             </plugin>
+
+            <!-- Exec Maven Plugin for Python code generation -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>generate-python-code</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <executable>python</executable>
+                    <arguments>
+                        <argument>-m</argument>
+                        <argument>grpc_tools.protoc</argument>
+                        <argument>-I</argument>
+                        <argument>${project.basedir}/src/main/proto</argument>
+                        <argument>--python_out</argument>
+                        <argument>${project.basedir}/python_client/generated</argument>
+                        <argument>--grpc_python_out</argument>
+                        <argument>${project.basedir}/python_client/generated</argument>
+                        <argument>${project.basedir}/src/main/proto/xlm-eco-api.proto</argument>
+                    </arguments>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Antrun Plugin to create __init__.py -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>1.8</version>
+                <executions>
+                    <execution>
+                        <id>create-init-py</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <tasks>
+                                <!-- Create the __init__.py file in the generated directory -->
+                                <touch file="${project.basedir}/python_client/generated/__init__.py" />
+                            </tasks>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Maven Shade Plugin for creating a fat JAR -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -132,7 +208,7 @@
                                 </transformer>
                                 <!-- Set the main class -->
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>us.daconta.xlmeco.GrpcServer</mainClass>
+                                    <mainClass>us.daconta.xlmeco.GrpcXlmServer</mainClass>
                                 </transformer>
                             </transformers>
                             <!-- Exclude signature files to avoid SecurityException -->

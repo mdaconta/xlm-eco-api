@@ -3,8 +3,8 @@ package us.daconta.xlmeco;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 
-public class GrpcServer {
-
+public class GrpcXlmServer {
+    public static final String version = "0.1";
     public static void main(String[] args) throws Exception {
         // Build and start the gRPC server
         Server server = ServerBuilder
@@ -12,7 +12,7 @@ public class GrpcServer {
                 .addService(new XlmEcosystemServiceImpl())  // Register your service implementation
                 .build();
 
-        System.out.println("Server started, listening on port 50051");
+        System.out.println("XLM Server V" + version + " started, listening on port 50051");
         server.start();
 
         // Ensure the server is kept running
