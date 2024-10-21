@@ -42,6 +42,10 @@ dependency-reduced-pom.xml
 
 # Ignore generated gRPC code
 generated/
+python_client/generated
+
+#python
+*.pyc
 
 # other
 *.log
