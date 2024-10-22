@@ -56,7 +56,11 @@ Here is the Feature Roadmap:
 3. LM Customization API
     1. Token Probabilities API
     2. LM Parameters API
-    3. Omni-Model API
+       1. Temperature - Controls the randomness or creativity of the model’s output.
+       2. Max tokens - Specifies the maximum number of tokens the model can return in its output.
+       3. Frequency Penalty - Penalizes the model for using words that have already appeared frequently in the text.
+       4. Presence Penalty - Encourages the model to avoid repeating the same tokens or phrases that have already been used in the conversation, promoting more diverse responses.
+    4. Omni-Model API
 4. Personas API
     1. Persona metadata
        1. System text
