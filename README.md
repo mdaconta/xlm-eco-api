@@ -2,8 +2,10 @@
 
 This project offers three key benefits:
 1. Cross LLM/SLM Generative AI Operations!
-2. Cross Programming Language Generative AI Operations!
-3. Standardized APIs across the Complete Ecosystem of Generative AI Operations!
+    1. Currently openai, google's gemini, ... more soon.
+3. Cross Programming Language Generative AI Operations!
+    1. Currently Java, Python ... more soon.
+5. Standardized APIs across the Complete Ecosystem of Generative AI Operations!
 
 ## Table of Contents
 - [Introduction](#introduction)
@@ -54,7 +56,11 @@ Here is the Feature Roadmap:
 3. LM Customization API
     1. Token Probabilities API
     2. LM Parameters API
-    3. Omni-Model API
+       1. Temperature - Controls the randomness or creativity of the model’s output.
+       2. Max tokens - Specifies the maximum number of tokens the model can return in its output.
+       3. Frequency Penalty - Penalizes the model for using words that have already appeared frequently in the text.
+       4. Presence Penalty - Encourages the model to avoid repeating the same tokens or phrases that have already been used in the conversation, promoting more diverse responses.
+    4. Omni-Model API
 4. Personas API
     1. Persona metadata
        1. System text
@@ -98,9 +104,10 @@ Here is the Feature Roadmap:
 ## Installation
 
 To build this software you will first have to insure you have the following pre-requisites:
-1. Latest Version of Java. You can download it here.
-2. gRPC. You can download it here.
-3. Maven.  The project has a pom file.  The two key POM lifecycle commands are Compile and Package.
+1. Latest Version of Java. You can download it [here](https://www.oracle.com/java/technologies/downloads/).
+2. Latest Version of Python.  You can download it [here](https://www.python.org/downloads/).
+3. gRPC. You can download it [here](https://github.com/grpc/grpc/releases).
+4. Maven.  The project has a pom file.  The two key POM lifecycle commands are Compile and Package.
   The package command creates a runnable Jar file that you can use to run both the client and the server. 
 5. Accounts and API keys with all the major LLM/SLM providers.
 6. Set up environment variables for all the API Keys.
@@ -119,8 +126,14 @@ To run the java test gRPC client you type:
 java -cp ./target/xlm-eco-api-1.0-SNAPSHOT.jar us.daconta.xlmeco.GrpcClient gemini "What is the Capital of France?"
 ```
 
+The python grpc stubs are created via maven and stored in the python_client/generated directory.
+To run the python client, there is a simple bash script to setup the path. 
+```bash
+ ./run_client.sh --provider openai --prompt "Who is FDR?"
+```
+
 Note: there will be a client created for every language supported by gRPC (Python, C#, C, Go, Rust, etc.)
 
 ## Conclusion 
 
-Feedback on the project is welcome.  You can email me at michael dot daconta at gmail dot com.
+Feedback on the project is welcome.  You can contact me via the contact form [here](https://www.daconta.us/Articles/ContactForm.html).
