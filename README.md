@@ -120,16 +120,21 @@ To run the gRPC server you type:
 ```bash
 java -jar ./target/xlm-eco-api-1.0-SNAPSHOT.jar
 ```
+Note: under src/main/resources there is a config.properties file that currently has the port to run the server on.  The clients will now also accept a host/port instead of having those values hardcoded.
+The format of the config.properties file is currently only one property:
+```
+server.port=50052
+```
 
 To run the java test gRPC client you type:
 ```bash
-java -cp ./target/xlm-eco-api-1.0-SNAPSHOT.jar us.daconta.xlmeco.GrpcClient gemini "What is the Capital of France?"
+java -cp ./target/xlm-eco-api-1.0-SNAPSHOT.jar us.daconta.xlmeco.GrpcXlmClient 127.0.0.1 50052 openai "gpt-4o-mini" "Who is FDR?"
 ```
 
 The python grpc stubs are created via maven and stored in the python_client/generated directory.
 To run the python client, there is a simple bash script to setup the path. 
 ```bash
- ./run_client.sh --provider openai --prompt "Who is FDR?"
+./run_client.sh --host 127.0.0.1 --port 50052 --provider openai --model_name gpt-4o-mini --prompt "Tell me about space exploration."
 ```
 
 Note: there will be a client created for every language supported by gRPC (Python, C#, C, Go, Rust, etc.)
