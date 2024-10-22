@@ -3,16 +3,41 @@ package us.daconta.xlmeco;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+import java.util.logging.Logger;
+
 public class GrpcXlmServer {
-    public static final String version = "0.1";
+    public static final String version = "0.02";
+    private static final Logger logger = Logger.getLogger(GrpcXlmServer.class.getName());
+
+    private static Properties loadProperties(String fileName) throws IOException {
+        Properties properties = new Properties();
+        try (InputStream input = GrpcXlmServer.class.getClassLoader().getResourceAsStream(fileName)) {
+            if (input == null) {
+                throw new FileNotFoundException("Sorry, unable to find " + fileName);
+            }
+            properties.load(input);
+        }
+        return properties;
+    }
+
     public static void main(String[] args) throws Exception {
+        // Load properties from config file
+        Properties properties = loadProperties("config.properties");
+
+        // Read the port from properties
+        int port = Integer.parseInt(properties.getProperty("server.port"));
+
         // Build and start the gRPC server
         Server server = ServerBuilder
-                .forPort(50051)  // Choose the port you want the server to run on (e.g., 50051)
+                .forPort(port)  // Choose the port you want the server to run on (e.g., 50051)
                 .addService(new XlmEcosystemServiceImpl())  // Register your service implementation
                 .build();
 
-        System.out.println("XLM Server V" + version + " started, listening on port 50051");
+        logger.info("XLM Server started V" + version + ", listening on port " + port);
         server.start();
 
         // Ensure the server is kept running
