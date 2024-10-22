@@ -1,22 +1,36 @@
-// Version 0.1
-
+// Version 0.02
 syntax = "proto3";
 
 option java_multiple_files = true;
 option java_package = "us.daconta.xlmeco.grpc";
 option java_outer_classname = "LlmEcoApi";
-//option python_package = "generated";
 
 service XlmEcosystemService {
-    // Chat API, accepts a request with a message and returns a response.
-    rpc Chat (ChatRequest) returns (ChatResponse);
+    // Synchronous Chat API, accepts a request with a message and returns a response.
+    rpc syncChat (ChatRequest) returns (ChatResponse);
+
+    // Asynchronous Chat API, streaming chat with a request stream and a response stream.
+    rpc asyncChat (ChatRequest) returns (stream ChatResponsePart);
+}
+
+message LmParameters {
+  int32 max_tokens = 1;
+  float temperature = 2;
+  float frequency_penalty = 3;
+  float presence_penalty = 4;
 }
 
 message ChatRequest {
     string prompt = 1;
-    string model = 2; // Specify whether it's OpenAI, Anthropic, or Gemini
+    string provider = 2;
+    string model_name = 3;
+    LmParameters params = 4; // optional
 }
 
 message ChatResponse {
     string completion = 1;
+}
+
+message ChatResponsePart {
+    string token = 1; // Tokenized response for streaming
 }
