@@ -50,3 +50,6 @@ python_client/generated
 # other
 *.log
 *.tmp
+
+# local config file with api keys
+src/main/resources/config.properties
