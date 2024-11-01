@@ -21,7 +21,7 @@ Here is the LLM Ecosystem diagram from my article entitled [What is the LLM Ecos
 
 ## Architecture
 
-In order to fulfill the objectives cited above (Cross-Language model, Cross-Programming-Language and Complete Ecosystem Services), we will use a gRPC client-server architecture as depicted in this [figure.](https://www.daconta.us/Articles/XLM-Architecture-1.jpg) 
+In order to fulfill the objectives cited above (Cross-Language model, Cross-Programming-Language and Complete Ecosystem Services), we will use a gRPC client-server architecture as depicted in this ![figure.](https://www.daconta.us/Articles/XLM-Architecture-1.jpg) 
 
 ## Features
 
