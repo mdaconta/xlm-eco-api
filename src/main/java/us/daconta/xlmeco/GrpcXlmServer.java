@@ -10,7 +10,7 @@ import java.util.Properties;
 import java.util.logging.Logger;
 
 public class GrpcXlmServer {
-    public static final String version = "0.02";
+    public static final String version = "0.03";
     private static final Logger logger = Logger.getLogger(GrpcXlmServer.class.getName());
 
     private static Properties loadProperties(String fileName) throws IOException {
@@ -34,7 +34,7 @@ public class GrpcXlmServer {
         // Build and start the gRPC server
         Server server = ServerBuilder
                 .forPort(port)  // Choose the port you want the server to run on (e.g., 50051)
-                .addService(new XlmEcosystemServiceImpl())  // Register your service implementation
+                .addService(new XlmEcosystemServiceImpl(properties))  // Register your service implementation
                 .build();
 
         logger.info("XLM Server started V" + version + ", listening on port " + port);
