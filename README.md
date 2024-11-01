@@ -1,6 +1,6 @@
 # Welcome to the Cross-LM (XLM) Ecosystem API Project!
 
-This project offers three key benefits:
+This project offers **three key benefits**:
 1. Cross LLM/SLM Generative AI Operations!
     1. Currently openai, google's gemini, ... more soon.
 3. Cross Programming Language Generative AI Operations!
@@ -18,6 +18,10 @@ This project offers three key benefits:
 
 Here is the LLM Ecosystem diagram from my article entitled [What is the LLM Ecosystem?](https://www.daconta.us/Articles/The-LLM-Ecosystem.html).
 ![The LLM Ecosystem](https://www.daconta.us/Articles/LLM-Ecosystem-Components.jpg)
+
+## Architecture
+
+In order to fulfill the objectives cited above (Cross-Language model, Cross-Programming-Language and Complete Ecosystem Services), we will use a gRPC client-server architecture as depicted in this [figure.](https://www.daconta.us/Articles/XLM-Architecture-1.jpg) 
 
 ## Features
 
