@@ -9,6 +9,7 @@ This project offers **three key benefits**:
 
 ## Table of Contents
 - [Introduction](#introduction)
+- [Architecture](#architecture)
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
