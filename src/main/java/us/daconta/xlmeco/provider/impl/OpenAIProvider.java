@@ -3,18 +3,54 @@ package us.daconta.xlmeco.provider.impl;
 import okhttp3.*;
 import us.daconta.xlmeco.grpc.ChatRequest;
 import us.daconta.xlmeco.grpc.ChatResponsePart;
+import us.daconta.xlmeco.grpc.ModelParameters;
 import us.daconta.xlmeco.provider.ChatProvider;
 import io.grpc.stub.StreamObserver;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import us.daconta.xlmeco.provider.EmbeddingProvider;
+import us.daconta.xlmeco.provider.GenerativeProvider;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
 
-public class OpenAIProvider implements ChatProvider {
+public class OpenAIProvider extends AbstractGenerativeProvider implements ChatProvider, EmbeddingProvider {
+    public static final String VERSION = "1.0";
+    public static final String PROVIDER_NAME = "openai";
+
+    public static final String PROPERTY_API_KEY = GenerativeProvider.API_KEY;
+    public static final String PROPERTY_URL_CHAT = GenerativeProvider.PROPERTY_URL_CHAT;
+    public static final String PROPERTY_URL_EMBEDDING = GenerativeProvider.PROPERTY_URL_EMBEDDING;
+    public static final String PROPERTY_DEFAULT_MODEL_LM = GenerativeProvider.PROPERTY_DEFAULT_MODEL_LM;
+    public static final String PROPERTY_DEFAULT_MODEL_EMBEDDING = GenerativeProvider.PROPERTY_DEFAULT_MODEL_EMBEDDING;
 
     private final OkHttpClient httpClient = new OkHttpClient();
+    private String apiKey;
+    private String chatURL;
+    private String embeddingURL;
+    private String defaultLanguageModel;
+    private String defaultEmbeddingModel;
+
+    // Configuration Properties read from property file
+    private Properties configProperties;
+
+    public OpenAIProvider() {
+        version = VERSION;
+    }
+
+    @Override
+    public void initialize(Properties configProperties) {
+        this.configProperties = configProperties;
+        apiKey = configProperties.getProperty(PROPERTY_API_KEY);
+        chatURL = configProperties.getProperty(PROPERTY_URL_CHAT);
+        embeddingURL = configProperties.getProperty(PROPERTY_URL_EMBEDDING);
+        defaultLanguageModel = configProperties.getProperty(PROPERTY_DEFAULT_MODEL_LM);
+        defaultEmbeddingModel = configProperties.getProperty(PROPERTY_DEFAULT_MODEL_EMBEDDING);
+    }
 
     @Override
     public ServiceLevel getServiceLevel() {
@@ -32,7 +68,7 @@ public class OpenAIProvider implements ChatProvider {
 
     @Override
     public boolean supportsEmbeddings() {
-        return false;  // Assume for now that OpenAI doesn't support embeddings in this version
+        return true;
     }
 
     @Override
@@ -41,8 +77,12 @@ public class OpenAIProvider implements ChatProvider {
     }
 
     @Override
+    public boolean supportsAgents() {
+        return false;
+    }
+
+    @Override
     public String generateChatResponse(ChatRequest request) throws IOException {
-        String apiKey = System.getenv("OPENAI_API_KEY");
         String prompt = request.getPrompt();
         String modelName = request.getModelName();
 
@@ -53,7 +93,7 @@ public class OpenAIProvider implements ChatProvider {
 
         RequestBody body = RequestBody.create(MediaType.parse("application/json"), jsonBody);
         Request httpRequest = new Request.Builder()
-                .url("https://api.openai.com/v1/chat/completions")
+                .url(chatURL)
                 .post(body)
                 .addHeader("Authorization", "Bearer " + apiKey)
                 .build();
@@ -74,7 +114,6 @@ public class OpenAIProvider implements ChatProvider {
 
     @Override
     public void streamChatResponse(ChatRequest request, StreamObserver<ChatResponsePart> responseObserver) throws IOException {
-        String apiKey = System.getenv("OPENAI_API_KEY");
         String prompt = request.getPrompt();
         String modelName = request.getModelName();
 
@@ -85,7 +124,7 @@ public class OpenAIProvider implements ChatProvider {
 
         RequestBody body = RequestBody.create(MediaType.parse("application/json"), jsonBody);
         Request httpRequest = new Request.Builder()
-                .url("https://api.openai.com/v1/chat/completions")
+                .url(chatURL)
                 .post(body)
                 .addHeader("Authorization", "Bearer " + apiKey)
                 .build();
@@ -113,5 +152,41 @@ public class OpenAIProvider implements ChatProvider {
         }
         responseObserver.onCompleted();
     }
+
+    @Override
+    public List<Float> generateEmbedding(String text, ModelParameters params) {
+        // Create the JSON body for the request
+        JSONObject jsonBody = new JSONObject();
+        jsonBody.put("model", defaultEmbeddingModel);
+        jsonBody.put("input", text);
+
+        // Build the HTTP request
+        Request request = new Request.Builder()
+                .url(embeddingURL)
+                .post(RequestBody.create(jsonBody.toString(), MediaType.parse("application/json")))
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .build();
+
+        // Send the request and parse the response
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected code: " + response);
+            }
+
+            // Parse the response to extract the embedding
+            String responseBody = response.body().string();
+            JSONObject responseJson = new JSONObject(responseBody);
+            JSONArray embeddingArray = responseJson.getJSONArray("data").getJSONObject(0).getJSONArray("embedding");
+
+            List<Float> embedding = new ArrayList<>();
+            for (int i = 0; i < embeddingArray.length(); i++) {
+                embedding.add(embeddingArray.getFloat(i));
+            }
+            return embedding;
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to get embedding from OpenAI: " + e.getMessage(), e);
+        }
+    }
+
 }
 

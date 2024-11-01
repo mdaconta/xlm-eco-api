@@ -1,4 +1,4 @@
-// Version 0.02
+// Version 0.03
 syntax = "proto3";
 
 option java_multiple_files = true;
@@ -6,11 +6,32 @@ option java_package = "us.daconta.xlmeco.grpc";
 option java_outer_classname = "LlmEcoApi";
 
 service XlmEcosystemService {
+    // ---- Chat API ----
     // Synchronous Chat API, accepts a request with a message and returns a response.
     rpc syncChat (ChatRequest) returns (ChatResponse);
 
     // Asynchronous Chat API, streaming chat with a request stream and a response stream.
     rpc asyncChat (ChatRequest) returns (stream ChatResponsePart);
+
+    // ---- Embedding API ----
+    rpc getEmbedding(EmbeddingRequest) returns (EmbeddingResponse);
+
+    // ---- Provider Management API ----
+    // Management method to list available providers and their capabilities
+    rpc listProviders (EmptyRequest) returns (ProvidersListResponse);
+
+    // Management method to set a preferred provider for subsequent requests
+    rpc setPreferredProviders (ProviderSelectionRequest) returns (SelectionResponse);
+
+    // Method to retrieve capabilities of a specific provider
+    rpc getProviderCapabilities (ProviderRequest) returns (ProviderCapabilitiesResponse);
+
+    // Register the client with the server
+    rpc registerClient (ClientRegistrationRequest) returns (ClientRegistrationResponse);
+
+    // Unregister the client (removes from client list)
+    rpc unregisterClient (ClientUnregistrationRequest) returns (ClientUnregistrationResponse);
+
 }
 
 message LmParameters {
@@ -21,10 +42,11 @@ message LmParameters {
 }
 
 message ChatRequest {
-    string prompt = 1;
-    string provider = 2;
-    string model_name = 3;
-    LmParameters params = 4; // optional
+    string client_id = 1;
+    string prompt = 2;
+    string provider = 3;
+    string model_name = 4;
+    LmParameters params = 5; // optional
 }
 
 message ChatResponse {
@@ -33,4 +55,78 @@ message ChatResponse {
 
 message ChatResponsePart {
     string token = 1; // Tokenized response for streaming
+}
+
+message EmbeddingRequest {
+  string client_id = 1;
+  string text = 2;
+  ModelParameters model_parameters = 3;
+}
+
+message ModelParameters {
+  map<string, string> parameters = 1;
+}
+
+message EmbeddingResponse {
+  repeated float embedding = 1;
+}
+
+message EmptyRequest {}
+
+message ProviderSelectionRequest {
+    string client_id = 1;  // Client ID
+    // a ProviderName, Capabilities desired mapping
+    map<string, ProviderCapabilitiesRequest> provider_capabilities = 2;
+}
+
+message ProviderCapabilitiesRequest {
+    string client_id = 1;
+    repeated string capabilities = 2; // List of capabilities that the client wants the provider to handle
+}
+
+message SelectionResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message ProvidersListResponse {
+    repeated ProviderInfo providers = 1;
+}
+
+message ProviderInfo {
+    string provider_name = 1;
+    string service_level = 2;
+    map<string, bool> capabilities = 3;  // Capabilities map: {"chat": true, "embedding": true, ...}
+}
+
+message ProviderRequest {
+    string client_id = 1;
+    // provider name
+    string provider = 2;
+}
+
+message ProviderCapabilitiesResponse {
+    string provider_name = 1;
+    string service_level = 2;
+    // Map is capability_name, supported?
+    map<string, bool> capabilities = 3;
+}
+
+message ClientRegistrationRequest {
+    string client_id = 1;  // Unique ID (e.g., GUID)
+    string client_name = 2; // Optional human-readable name
+}
+
+message ClientRegistrationResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message ClientUnregistrationRequest {
+    string client_id = 1;  // Unique ID of the client
+}
+
+message ClientUnregistrationResponse {
+    bool success = 1;
+    string message = 2;
 }
