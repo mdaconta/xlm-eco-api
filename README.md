@@ -115,9 +115,11 @@ To build this software you will first have to insure you have the following pre-
 4. Maven.  The project has a pom file.  The two key POM lifecycle commands are Compile and Package.
   The package command creates a runnable Jar file that you can use to run both the client and the server. 
 5. Accounts and API keys with all the major LLM/SLM providers.
-6. Set up environment variables for all the API Keys.
+6. Set up the configuration file (copy src/main/resources/config.properties.template to config.properties).
+   Then add the following.
     1. OPENAI_API_KEY
-    2. GEMINI_PROJECT_ID
+    2. GEMINI_PROJECT_ID (working on getting the gemini api key working. Will have the provider updated soon).
+   **NOTE**: NEVER push up the config.properties file with any api keys (the .gitignore file should prevent that).
 
 ## Usage
 
