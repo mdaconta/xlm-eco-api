@@ -40,6 +40,7 @@ dependency-reduced-pom.xml
 # Maven local repository
 .m2/
 
+node_modules/
 # Ignore generated gRPC code
 generated/
 python_client/generated
@@ -53,3 +54,8 @@ python_client/generated
 
 # local config file with api keys
 src/main/resources/config.properties
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
