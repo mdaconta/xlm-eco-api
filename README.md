@@ -110,16 +110,15 @@ Here is the Feature Roadmap:
 
 To build this software you will first have to insure you have the following pre-requisites:
 1. Latest Version of Java. You can download it [here](https://www.oracle.com/java/technologies/downloads/).
-2. Latest Version of Python.  You can download it [here](https://www.python.org/downloads/).
-3. gRPC. You can download it [here](https://github.com/grpc/grpc/releases).
-4. Maven.  The project has a pom file.  The two key POM lifecycle commands are Compile and Package.
-  The package command creates a runnable Jar file that you can use to run both the client and the server. 
-5. Accounts and API keys with all the major LLM/SLM providers.
-6. Set up the configuration file (copy src/main/resources/config.properties.template to config.properties).
-   Then add the following.
-    1. OPENAI_API_KEY
-    2. GEMINI_PROJECT_ID (working on getting the gemini api key working. Will have the provider updated soon).
-   **NOTE**: NEVER push up the config.properties file with any api keys (the .gitignore file should prevent that).
+2. Latest Version of Python. You can download it [here](https://www.python.org/downloads/).
+3. Latest Version of NodeJS. You can download it [here](https://nodejs.org/en/download/package-manager).
+4. gRPC. You can download it [here](https://github.com/grpc/grpc/releases).
+5. Maven. The project has a pom file. The two key POM lifecycle commands are Compile and Package.
+   The package command creates a runnable Jar file that you can use to run both the client and the server.
+6. Accounts and API keys with all the major LLM/SLM providers.
+7. Set up environment variables for all the API Keys.
+   1. OPENAI_API_KEY
+   2. GEMINI_PROJECT_ID
 
 ## Usage
 
@@ -142,6 +141,12 @@ The python grpc stubs are created via maven and stored in the python_client/gene
 To run the python client, there is a simple bash script to setup the path. 
 ```bash
 ./run_client.sh --host 127.0.0.1 --port 50052 --provider openai --model_name gpt-4o-mini --prompt "Tell me about space exploration."
+```
+
+The node grpc stubs will be created dynamically during runtime.
+
+```
+node ./node_client/app.js --host 127.0.0.1 --port 50052 --provider openai --model_name gpt-4o-mini --prompt "Would you say I have a plethora of pinatas?"
 ```
 
 Note: there will be a client created for every language supported by gRPC (Python, C#, C, Go, Rust, etc.)
