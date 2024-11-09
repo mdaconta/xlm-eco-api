@@ -22,7 +22,7 @@ const protoFile = path.join(protoDir, 'xlm-eco-api.proto'); // Adjust this
 
 // Construct the `protoc` command for Node.js client generation
 const command = [
-    `npx grpc_tools_node_protoc`,
+    `grpc_tools_node_protoc`,
     `--proto_path=${protoDir}`, // Specify proto path
     `--js_out=import_style=commonjs,binary:${generatedDir}`, // Output JS for use with Node
     `--grpc_out=grpc_js:${generatedDir}`, // Output gRPC code for Node.js

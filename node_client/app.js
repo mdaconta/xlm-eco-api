@@ -1,17 +1,9 @@
 const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
 const { v4: uuidv4 } = require('uuid');
-const {
-  XlmEcosystemServiceClient
-} = require('./xlm_eco_api_grpc_pb');
-const {
-  ClientRegistrationRequest,
-  ClientUnregistrationRequest,
-  ProviderRequest,
-  ProviderSelectionRequest,
-  ChatRequest,
-  EmbeddingRequest,
-  EmptyRequest
-} = require('./xlm_eco_api_pb');
+
+// Define the path to your proto file
+const PROTO_PATH = '../src/main/proto/xlm-eco-api.proto';
 
 // Process command-line arguments
 const args = require('minimist')(process.argv.slice(2));
@@ -26,9 +18,27 @@ if (!provider || !modelName || !prompt) {
   process.exit(1);
 }
 
+// Load the protobuf file using proto-loader
+const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+  keepCase: true, // Keeps field names as defined in proto
+  longs: String,  // Convert long values to strings
+  enums: String,  // Convert enum values to strings
+  defaults: true, // Populate default values
+  oneofs: true    // Include oneof fields
+});
+
+// Load the package definition into grpc
+const protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
+//console.log(protoDescriptor);
+
+
+// Access the services directly
+const grpcPackage = protoDescriptor;
+
 async function runSetup(host, port, provider, modelName, prompt) {
-  // Establish the channel to communicate with the gRPC server
-  const client = new XlmEcosystemServiceClient(`${host}:${port}`, grpc.credentials.createInsecure());
+
+  // Create a client for the gRPC service
+  const client = new grpcPackage.XlmEcosystemService(`${host}:${port}`, grpc.credentials.createInsecure());
 
   // Register the client
   const clientId = uuidv4();
