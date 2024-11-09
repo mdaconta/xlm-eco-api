@@ -6,8 +6,10 @@ const path = require('path');
 const scriptDir = __dirname;
 
 // Define the paths to the proto file and output directories
-const protoDir = path.join(scriptDir, '../proto'); // Adjust to your proto files location
+const protoDir = path.join(scriptDir, '../src/main/proto'); // Adjust to your proto files location
 const generatedDir = path.join(scriptDir, 'generated');
+
+//onsole.log("this is protoDir: " + protoDir);
 
 // Ensure the output directory exists
 const fs = require('fs');
