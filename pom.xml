@@ -102,8 +102,8 @@
                             <goal>install-node-and-npm</goal>
                         </goals>
                         <configuration>
-                            <nodeVersion>${node.version}</nodeVersion>
-                            <npmVersion>${npm.version}</npmVersion>
+                            <nodeVersion>v20.9.0</nodeVersion>
+                            <npmVersion>10.0.0</npmVersion>
                         </configuration>
                     </execution>
                     <execution>
@@ -119,26 +119,7 @@
             </plugin>
 
             <!-- Exec Maven Plugin to generate Node client -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>generate-node-client</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>node</executable>
-                            <arguments>
-                                <argument>${project.basedir}/node_client/generateClient.js</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
+
             <plugin>
                 <artifactId>maven-clean-plugin</artifactId>
                 <version>3.4.0</version>

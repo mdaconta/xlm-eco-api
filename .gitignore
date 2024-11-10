@@ -41,6 +41,7 @@ dependency-reduced-pom.xml
 .m2/
 
 node_modules/
+node/
 # Ignore generated gRPC code
 generated/
 python_client/generated
