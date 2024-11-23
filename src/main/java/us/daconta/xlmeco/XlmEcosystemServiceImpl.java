@@ -8,6 +8,7 @@ import us.daconta.xlmeco.provider.GenerativeProvider;
 import us.daconta.xlmeco.provider.GenerativeProviderFactory;
 import us.daconta.xlmeco.provider.impl.GoogleProvider;
 import us.daconta.xlmeco.provider.impl.OpenAIProvider;
+import us.daconta.xlmeco.provider.impl.GrokProvider;
 
 import java.util.ArrayList;
 import java.util.List;
