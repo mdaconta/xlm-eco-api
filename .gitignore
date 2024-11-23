@@ -53,8 +53,6 @@ python_client/generated
 *.log
 *.tmp
 
-# local config file with api keys
-src/main/resources/config.properties.template
 
 # Dependency directories
 node_modules/

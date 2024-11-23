@@ -26,7 +26,7 @@ public class GrpcXlmServer {
 
     public static void main(String[] args) throws Exception {
         // Load properties from config file
-        Properties properties = loadProperties("config.properties.template");
+        Properties properties = loadProperties("config.properties");
 
         // Read the port from properties
         int port = Integer.parseInt(properties.getProperty("server.port"));

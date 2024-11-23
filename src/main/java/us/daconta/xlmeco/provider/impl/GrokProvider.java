@@ -18,7 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
-public class GrokProvider extends AbstractGenerativeProvider implements ChatProvider, EmbeddingProvider {
+public class GrokProvider extends AbstractGenerativeProvider implements ChatProvider {
     public static final String VERSION = "1.0";
     public static final String PROVIDER_NAME = "grok";
 
@@ -152,39 +152,6 @@ public class GrokProvider extends AbstractGenerativeProvider implements ChatProv
         }
         responseObserver.onCompleted();
     }
-    @Override
-    public List<Float> generateEmbedding(String text, ModelParameters params) {
-        // Create the JSON body for the request
-        JSONObject jsonBody = new JSONObject();
-        jsonBody.put("model", defaultEmbeddingModel);
-        jsonBody.put("input", text);
-
-        // Build the HTTP request
-        Request request = new Request.Builder()
-                .url(embeddingURL)
-                .post(RequestBody.create(jsonBody.toString(), MediaType.parse("application/json")))
-                .addHeader("Authorization", "Bearer " + apiKey)
-                .build();
-
-        // Send the request and parse the response
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new IOException("Unexpected code: " + response);
-            }
-
-            // Parse the response to extract the embedding
-            String responseBody = response.body().string();
-            JSONObject responseJson = new JSONObject(responseBody);
-            JSONArray embeddingArray = responseJson.getJSONArray("data").getJSONObject(0).getJSONArray("embedding");
-
-            List<Float> embedding = new ArrayList<>();
-            for (int i = 0; i < embeddingArray.length(); i++) {
-                embedding.add(embeddingArray.getFloat(i));
-            }
-            return embedding;
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to get embedding from Grok: " + e.getMessage(), e);
-        }
-    }
+   
 
 }
