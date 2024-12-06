@@ -10,7 +10,7 @@ import java.util.Properties;
 import java.util.logging.Logger;
 
 public class GrpcXlmServer {
-    public static final String version = "0.03";
+    public static final String version = "0.04";
     private static final Logger logger = Logger.getLogger(GrpcXlmServer.class.getName());
 
     private static Properties loadProperties(String fileName) throws IOException {
@@ -35,6 +35,7 @@ public class GrpcXlmServer {
         Server server = ServerBuilder
                 .forPort(port)  // Choose the port you want the server to run on (e.g., 50051)
                 .addService(new XlmEcosystemServiceImpl(properties))  // Register your service implementation
+                .addService(new VectorDbServiceImpl(properties))
                 .build();
 
         logger.info("XLM Server started V" + version + ", listening on port " + port);
