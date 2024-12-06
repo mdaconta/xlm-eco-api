@@ -42,6 +42,7 @@ dependency-reduced-pom.xml
 
 node_modules/
 node/
+
 # Ignore generated gRPC code
 generated/
 python_client/generated
@@ -57,4 +58,7 @@ python_client/generated
 # Dependency directories
 node_modules/
 jspm_packages/
+
+# ignore properties with possible keys exposed
+src/main/resources/config.properties
 
