@@ -83,6 +83,17 @@
             <artifactId>google-cloud-aiplatform</artifactId>
             <version>3.53.0</version>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/io.milvus/milvus-sdk-java -->
+        <dependency>
+            <groupId>io.milvus</groupId>
+            <artifactId>milvus-sdk-java</artifactId>
+            <version>2.4.8</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.4.11</version>
+        </dependency>
     </dependencies>
 
     <build>

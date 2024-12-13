@@ -33,7 +33,7 @@ public class GenerativeProviderFactory {
         return providers;
     }
 
-    private static Properties filterPropertiesForPrefix(Properties properties, String prefix) {
+    public static Properties filterPropertiesForPrefix(Properties properties, String prefix) {
         Properties filteredProps = new Properties();
 
         properties.forEach((key, value) -> {

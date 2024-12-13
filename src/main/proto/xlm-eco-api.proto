@@ -3,7 +3,7 @@ syntax = "proto3";
 
 option java_multiple_files = true;
 option java_package = "us.daconta.xlmeco.grpc";
-option java_outer_classname = "LlmEcoApi";
+option java_outer_classname = "XlmEcoApi";
 
 service XlmEcosystemService {
     // ---- Chat API ----
@@ -31,9 +31,118 @@ service XlmEcosystemService {
 
     // Unregister the client (removes from client list)
     rpc unregisterClient (ClientUnregistrationRequest) returns (ClientUnregistrationResponse);
-
 }
 
+// Service definition for basic Vector Database operations.
+service VectorDbService {
+  // Defines the schema for vector metadata, specifying the name and type of each field.
+  rpc DefineVectorSchema(DefineVectorSchemaRequest) returns (DefineVectorSchemaResponse);
+
+  // Inserts or updates a vector embedding with associated content and metadata.
+  rpc UpsertVector(UpsertVectorRequest) returns (UpsertVectorResponse);
+
+  // Retrieves a vector embedding and its content by ID.
+  rpc GetVector(GetVectorRequest) returns (GetVectorResponse);
+
+  // Deletes a vector embedding by ID.
+  rpc DeleteVector(DeleteVectorRequest) returns (DeleteVectorResponse);
+
+  // Searches for similar vectors based on a query vector and returns IDs of nearest matches.
+  rpc SearchVectors(SearchVectorsRequest) returns (SearchVectorsResponse);
+}
+
+// ****** Messages for VectorDb Service ******
+// Request to define the vector schema for metadata.
+message DefineVectorSchemaRequest {
+    int32 embeddingDimension = 1;
+    // Note: this only defines additional "optional" fields
+    repeated MetadataField fields = 2; // List of metadata fields with names and types.
+}
+
+// Response for defining the vector schema.
+message DefineVectorSchemaResponse {
+  bool success = 1; // Whether the schema was successfully defined.
+}
+
+// Metadata field specification with name and type.
+message MetadataField {
+  string name = 1; // Name of the metadata field.
+  FieldType type = 2; // Data type of the field (e.g., STRING, INTEGER, FLOAT).
+}
+
+// Enum to specify supported data types for metadata fields.
+enum FieldType {
+  STRING = 0;
+  INTEGER = 1;
+  FLOAT = 2;
+}
+
+// Request to upsert a vector embedding with content and typed metadata.
+message UpsertVectorRequest {
+  string id = 1;                       // Unique ID for the vector.
+  repeated float embedding = 2;         // The vector embedding values.
+  string content = 3;                   // The original content that generated this vector.
+  map<string, MetadataValue> metadata = 4; // Metadata with field name and typed value.
+}
+
+// Response for upserting a vector.
+message UpsertVectorResponse {
+  string id = 1;                        // ID of the upserted vector.
+}
+
+// Request to retrieve a vector embedding by ID.
+message GetVectorRequest {
+  string id = 1;                        // Unique ID of the vector to retrieve.
+}
+
+// Response containing the retrieved vector embedding, content, and metadata.
+message GetVectorResponse {
+  string id = 1;                        // ID of the vector.
+  repeated float embedding = 2;         // The vector embedding values.
+  string content = 3;                   // The original content that generated this vector.
+  map<string, MetadataValue> metadata = 4; // Metadata with field name and typed value.
+}
+
+// Metadata value that supports multiple types based on the schema.
+message MetadataValue {
+  oneof value {
+    string string_value = 1;
+    int32 int_value = 2;
+    float float_value = 3;
+  }
+}
+
+// Request to delete a vector embedding by ID.
+message DeleteVectorRequest {
+  string id = 1;                        // Unique ID of the vector to delete.
+}
+
+// Response confirming deletion.
+message DeleteVectorResponse {
+  bool success = 1;                     // Whether the deletion was successful.
+}
+
+// Request to search for similar vectors based on a query vector.
+message SearchVectorsRequest {
+  repeated float query_embedding = 1;   // The vector to compare against.
+  int32 top_k = 2;                      // Number of top results to return.
+}
+
+// Response with the search results, listing IDs of nearest matches.
+message SearchVectorsResponse {
+  repeated SearchResult results = 1;    // List of search results.
+}
+
+// Search result item with ID and similarity score.
+message SearchResult {
+  string id = 1;                        // ID of the matched vector.
+  float score = 2;                      // Similarity score (e.g., cosine similarity or L2 distance).
+  repeated float embedding = 3;         // The vector embedding values.
+  string content = 4;                   // The original content that generated this vector.
+  map<string, MetadataValue> metadata = 5; // Metadata with field name and typed value.
+}
+
+// ****** Messages for XlmEcosystemService ******
 message LmParameters {
   int32 max_tokens = 1;
   float temperature = 2;

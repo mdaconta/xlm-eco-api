@@ -1,5 +1,6 @@
 # General configuration
 server.port=50052
+feature.vectordb.enabled=false
 
 # Provider Configurations
 # OpenAI provider configuration
@@ -24,3 +25,9 @@ grok.chat_url=https://api.x.ai/v1/chat/completions
 grok.embedding_url=https://api.x.ai/v1/embeddings
 grok.default_lm_model=grok-beta
 grok.default_embedding_model=
+
+# Vector DB Providers
+milvus.host=127.0.0.1
+milvus.port=19530
+
+
