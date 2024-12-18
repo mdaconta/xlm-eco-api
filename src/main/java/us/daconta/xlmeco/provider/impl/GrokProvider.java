@@ -84,11 +84,14 @@ public class GrokProvider extends AbstractGenerativeProvider implements ChatProv
     @Override
     public String generateChatResponse(ChatRequest request) throws IOException {
         String prompt = request.getPrompt();
+        // Escape the prompt to make it JSON-safe
+        String escapedPrompt = JSONObject.quote(prompt); // This will escape special characters in the prompt
+
         String modelName = request.getModelName();
 
         String jsonBody = "{ \"model\": \"" + modelName + "\", " +
                 "\"messages\": [{ \"role\": \"system\", \"content\": \"You are a helpful assistant.\" }, " +
-                "{ \"role\": \"user\", \"content\": \"" + prompt + "\" }], " +
+                "{ \"role\": \"user\", \"content\": " + escapedPrompt + " }], " +
                 "\"max_tokens\": 1000 }";
 
         RequestBody body = RequestBody.create(MediaType.parse("application/json"), jsonBody);
@@ -115,11 +118,14 @@ public class GrokProvider extends AbstractGenerativeProvider implements ChatProv
     @Override
     public void streamChatResponse(ChatRequest request, StreamObserver<ChatResponsePart> responseObserver) throws IOException {
         String prompt = request.getPrompt();
+        // Escape the prompt to make it JSON-safe
+        String escapedPrompt = JSONObject.quote(prompt); // This will escape special characters in the prompt
+
         String modelName = request.getModelName();
 
         String jsonBody = "{ \"model\": \"" + modelName + "\", " +
                 "\"messages\": [{ \"role\": \"system\", \"content\": \"You are a helpful assistant.\" }, " +
-                "{ \"role\": \"user\", \"content\": \"" + prompt + "\" }], " +
+                "{ \"role\": \"user\", \"content\":" + escapedPrompt + " }], " +
                 "\"max_tokens\": 1000, \"stream\": true }";
 
         RequestBody body = RequestBody.create(MediaType.parse("application/json"), jsonBody);

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>XLM Chat</title>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            padding: 0;
+            text-align: center;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px; /* Space below the app title */
+            color: blue; /* App title in blue */
+        }
+
+        #chatBoxContainer {
+            width: 80%; /* Matches the width of the input field and button */
+            margin: 0 auto;
+            margin-bottom: 20px; /* Add separation from input area */
+        }
+
+        #titleContainer {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 15px; /* Add space between title and chat box */
+            text-align: left;
+        }
+
+        #chatBox {
+            border: 1px solid #ccc;
+            height: 300px;
+            padding: 10px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            background-color: #f9f9f9;
+            text-align: left;
+            width: 100%; /* Matches the width of the container */
+            box-sizing: border-box; /* Ensures padding is included in width */
+        }
+
+        #inputContainer {
+            display: flex;
+            justify-content: space-between; /* Align input and button */
+            width: 80%; /* Matches chat box width */
+            margin: 0 auto; /* Center the input container */
+        }
+
+        #messageInput {
+            flex: 1; /* Fills remaining space */
+            height: 40px; /* Matches the height of the button */
+            padding: 5px;
+            font-size: 16px;
+            box-sizing: border-box; /* Includes padding and border in width */
+        }
+
+        #sendButton {
+            height: 50px; /* Matches the height of the input field */
+            font-size: 16px;
+            margin-left: 10px;
+            padding: 0 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>XLM Chat</h1>
+    <div id="chatBoxContainer">
+        <div id="titleContainer"></div>
+        <div id="chatBox"></div>
+    </div>
+    <div id="inputContainer">
+        <input type="text" id="messageInput" placeholder="Type your prompt here" />
+        <button id="sendButton" onclick="sendMessage()">Send</button>
+    </div>
+
+    <script>
+        const socket = io();
+        const chatBox = document.getElementById('chatBox');
+        const titleContainer = document.getElementById('titleContainer');
+        const messageInput = document.getElementById('messageInput');
+
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            fetch('/send_message', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: message})
+            }).then(response => {
+                if (response.ok) {
+                    console.log("Message sent!");
+                    messageInput.value = ""; // Clear the input field after submission
+                    chatBox.textContent = ""; // Clear previous chat
+                    titleContainer.textContent = ""; // Clear previous title
+                } else {
+                    console.error("Error sending message");
+                }
+            });
+        }
+
+        socket.on('chat_response', (data) => {
+            // Append received tokens to chatBox
+            chatBox.textContent += data.message;
+        });
+
+        socket.on('chat_title', (data) => {
+            // Display the generated title at the top
+            titleContainer.textContent = data.title;
+        });
+    </script>
+</body>
+</html>
+
