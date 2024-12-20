@@ -30,4 +30,3 @@ grok.default_embedding_model=
 milvus.host=127.0.0.1
 milvus.port=19530
 
-
