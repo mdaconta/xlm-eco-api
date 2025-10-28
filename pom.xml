@@ -186,27 +186,44 @@
                 <version>3.1.0</version>
                 <executions>
                     <execution>
+                        <id>install-python-dependencies</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>python</executable>
+                            <arguments>
+                                <argument>-m</argument>
+                                <argument>pip</argument>
+                                <argument>install</argument>
+                                <argument>-r</argument>
+                                <argument>${project.basedir}/python_client/requirements.txt</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>generate-python-code</id>
                         <phase>compile</phase>
                         <goals>
                             <goal>exec</goal>
                         </goals>
+                        <configuration>
+                            <executable>python</executable>
+                            <arguments>
+                                <argument>-m</argument>
+                                <argument>grpc_tools.protoc</argument>
+                                <argument>-I</argument>
+                                <argument>${project.basedir}/src/main/proto</argument>
+                                <argument>--python_out</argument>
+                                <argument>${project.basedir}/python_client/generated</argument>
+                                <argument>--grpc_python_out</argument>
+                                <argument>${project.basedir}/python_client/generated</argument>
+                                <argument>${project.basedir}/src/main/proto/xlm-eco-api.proto</argument>
+                            </arguments>
+                        </configuration>
                     </execution>
                 </executions>
-                <configuration>
-                    <executable>python</executable>
-                    <arguments>
-                        <argument>-m</argument>
-                        <argument>grpc_tools.protoc</argument>
-                        <argument>-I</argument>
-                        <argument>${project.basedir}/src/main/proto</argument>
-                        <argument>--python_out</argument>
-                        <argument>${project.basedir}/python_client/generated</argument>
-                        <argument>--grpc_python_out</argument>
-                        <argument>${project.basedir}/python_client/generated</argument>
-                        <argument>${project.basedir}/src/main/proto/xlm-eco-api.proto</argument>
-                    </arguments>
-                </configuration>
             </plugin>
 
             <!-- Maven Antrun Plugin to create __init__.py -->

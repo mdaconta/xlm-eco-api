@@ -110,7 +110,10 @@ Here is the Feature Roadmap:
 
 To build this software you will first have to insure you have the following pre-requisites:
 1. Latest Version of Java. You can download it [here](https://www.oracle.com/java/technologies/downloads/).
-2. Latest Version of Python. You can download it [here](https://www.python.org/downloads/).
+2. Latest Version of Python. You can download it [here](https://www.python.org/downloads/). Install the Python gRPC build tooling with:
+   ```bash
+   python -m pip install -r python_client/requirements.txt
+   ```
 3. Latest Version of NodeJS. You can download it [here](https://nodejs.org/en/download/package-manager).
 4. gRPC. You can download it [here](https://github.com/grpc/grpc/releases).
 5. Maven. The project has a pom file. The two key POM lifecycle commands are Compile and Package.
