@@ -2,3 +2,4 @@ us.daconta.xlmeco.provider.impl.OpenAIProvider
 us.daconta.xlmeco.provider.impl.AnthropicProvider
 us.daconta.xlmeco.provider.impl.GoogleProvider
 us.daconta.xlmeco.provider.impl.GrokProvider
+us.daconta.xlmeco.provider.impl.OllamaProvider

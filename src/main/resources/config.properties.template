@@ -26,6 +26,10 @@ grok.embedding_url=https://api.x.ai/v1/embeddings
 grok.default_lm_model=grok-beta
 grok.default_embedding_model=
 
+# Ollama provider configuration
+ollama.chat_url=http://localhost:11434/api/chat
+ollama.default_lm_model=llama3
+
 # Vector DB Providers
 milvus.host=127.0.0.1
 milvus.port=19530
