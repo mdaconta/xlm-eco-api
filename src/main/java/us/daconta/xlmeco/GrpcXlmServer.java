@@ -14,6 +14,7 @@ public class GrpcXlmServer {
     private static final Logger logger = Logger.getLogger(GrpcXlmServer.class.getName());
 
     private static Properties loadProperties(String fileName) throws IOException {
+        logger.info(() -> "Loading properties from " + fileName);
         Properties properties = new Properties();
         try (InputStream input = GrpcXlmServer.class.getClassLoader().getResourceAsStream(fileName)) {
             if (input == null) {
@@ -21,6 +22,7 @@ public class GrpcXlmServer {
             }
             properties.load(input);
         }
+        logger.info(() -> "Loaded properties: " + properties);
         return properties;
     }
 
@@ -30,6 +32,7 @@ public class GrpcXlmServer {
 
         // Read the port from properties
         int port = Integer.parseInt(properties.getProperty("server.port"));
+        logger.info(() -> "Configured server port: " + port);
 
         // Build and start the gRPC server
         Server server = ServerBuilder
@@ -42,6 +45,7 @@ public class GrpcXlmServer {
         server.start();
 
         // Ensure the server is kept running
+        logger.info("gRPC server started; awaiting termination");
         server.awaitTermination();
     }
 }
