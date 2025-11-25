@@ -16,15 +16,19 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosystemServiceImplBase {
     // In-memory map for registered clients (can be replaced with a database)
     private final Map<String, String> registeredClients = new ConcurrentHashMap<>();  // client_id -> client_name
     private final Map<String, Map<String, GenerativeProvider>> clientProviderMap = new ConcurrentHashMap<>();  // client_id -> (capability -> provider)
     private Map<String, GenerativeProvider> providers = new ConcurrentHashMap<String, GenerativeProvider>();
+    private static final Logger logger = Logger.getLogger(XlmEcosystemServiceImpl.class.getName());
 
     public XlmEcosystemServiceImpl(Properties properties) {
         this.providers = GenerativeProviderFactory.loadProviders(properties);
+        logger.info(() -> "Loaded providers: " + providers.keySet());
     }
 
     private Properties filterPropertiesForPrefix(Properties properties, String prefix) {
@@ -41,6 +45,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
     public void registerClient(ClientRegistrationRequest request, StreamObserver<ClientRegistrationResponse> responseObserver) {
         String clientId = request.getClientId();
         String clientName = request.getClientName();
+        logger.info(() -> "Registering client. id=" + clientId + ", name=" + clientName);
 
         if (registeredClients.containsKey(clientId)) {
             ClientRegistrationResponse response = ClientRegistrationResponse.newBuilder()
@@ -54,6 +59,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
 
         // Store the client ID and name
         registeredClients.put(clientId, clientName == null || clientName.isEmpty() ? "Unknown" : clientName);
+        logger.info(() -> "Client registered. id=" + clientId + ", name=" + registeredClients.get(clientId));
 
         ClientRegistrationResponse response = ClientRegistrationResponse.newBuilder()
                 .setSuccess(true)
@@ -66,6 +72,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
     @Override
     public void unregisterClient(ClientUnregistrationRequest request, StreamObserver<ClientUnregistrationResponse> responseObserver) {
         String clientId = request.getClientId();
+        logger.info(() -> "Unregistering client. id=" + clientId);
 
         if (!registeredClients.containsKey(clientId)) {
             ClientUnregistrationResponse response = ClientUnregistrationResponse.newBuilder()
@@ -80,6 +87,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
         // Remove the client
         registeredClients.remove(clientId);
         clientProviderMap.remove(clientId); // Remove associated provider choices
+        logger.info(() -> "Client unregistered. id=" + clientId);
 
         ClientUnregistrationResponse response = ClientUnregistrationResponse.newBuilder()
                 .setSuccess(true)
@@ -93,6 +101,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
     @Override
     public void syncChat(ChatRequest request, StreamObserver<ChatResponse> responseObserver) {
         String clientId = request.getClientId();
+        logger.info(() -> "Received sync chat request from client " + clientId + " with prompt size " + request.getPrompt().length());
         if (!registeredClients.containsKey(clientId)) {
             responseObserver.onError(new UnsupportedOperationException("Client Id" + clientId + " is not registered."));
             return;
@@ -119,9 +128,11 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
             completion = chatProvider.generateChatResponse(request);
         } catch (Exception e) {
             completion = "Error: " + e.getMessage();
+            logger.log(Level.SEVERE, "Error generating chat response", e);
         }
 
         ChatResponse response = ChatResponse.newBuilder().setCompletion(completion).build();
+        logger.info(() -> "Returning sync chat response for client " + clientId);
         responseObserver.onNext(response);
         responseObserver.onCompleted();
     }
@@ -129,6 +140,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
     @Override
     public void asyncChat(ChatRequest request, StreamObserver<ChatResponsePart> responseObserver) {
         String clientId = request.getClientId();
+        logger.info(() -> "Received async chat request from client " + clientId + " with prompt size " + request.getPrompt().length());
         if (!registeredClients.containsKey(clientId)) {
             responseObserver.onError(new UnsupportedOperationException("Client Id" + clientId + " is not registered."));
             return;
@@ -154,11 +166,13 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
             chatProvider.streamChatResponse(request, responseObserver);
         } catch (Exception e) {
             responseObserver.onError(new RuntimeException("Error: " + e.getMessage()));
+            logger.log(Level.SEVERE, "Error streaming chat response", e);
         }
     }
 
     @Override
     public void listProviders(EmptyRequest request, StreamObserver<ProvidersListResponse> responseObserver) {
+        logger.info("Listing available providers");
         List<ProviderInfo> providerInfos = new ArrayList<>();
 
         for (GenerativeProvider provider : providers.values()) {
@@ -179,11 +193,13 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
 
         responseObserver.onNext(response);
         responseObserver.onCompleted();
+        logger.info(() -> "Returned " + providerInfos.size() + " providers");
     }
 
     @Override
     public void getProviderCapabilities(ProviderRequest request, StreamObserver<ProviderCapabilitiesResponse> responseObserver) {
         String clientId = request.getClientId();
+        logger.info(() -> "Fetching capabilities for provider " + request.getProvider() + " for client " + clientId);
         if (!registeredClients.containsKey(clientId)) {
             responseObserver.onError(new UnsupportedOperationException("Client Id" + clientId + " is not registered."));
             return;
@@ -205,11 +221,13 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
 
         responseObserver.onNext(response);
         responseObserver.onCompleted();
+        logger.info(() -> "Returned capabilities for provider " + provider.getProviderName());
     }
 
     @Override
     public void setPreferredProviders(ProviderSelectionRequest request, StreamObserver<SelectionResponse> responseObserver) {
         String clientId = request.getClientId();
+        logger.info(() -> "Setting preferred providers for client " + clientId);
 
         // Ensure the client is registered
         if (!registeredClients.containsKey(clientId)) {
@@ -229,6 +247,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
         for (Map.Entry<String, ProviderCapabilitiesRequest> entry : request.getProviderCapabilitiesMap().entrySet()) {
             String providerName = entry.getKey();
             GenerativeProvider provider = GenerativeProviderFactory.getProvider(providerName);
+            logger.info(() -> "Assigning provider " + providerName + " to capabilities " + entry.getValue().getCapabilitiesList());
 
             // Iterate over the list of capabilities the client wants this provider to handle
             for (String capability : entry.getValue().getCapabilitiesList()) {
@@ -247,12 +266,14 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
                 .build();
         responseObserver.onNext(response);
         responseObserver.onCompleted();
+        logger.info(() -> "Preferred providers set for client " + clientId);
     }
 
     @Override
     public void getEmbedding(us.daconta.xlmeco.grpc.EmbeddingRequest request,
                              io.grpc.stub.StreamObserver<us.daconta.xlmeco.grpc.EmbeddingResponse> responseObserver) {
         String clientId = request.getClientId();
+        logger.info(() -> "Received embedding request from client " + clientId + " with text length " + request.getText().length());
 
         // Check if client is registered
         if (!isClientRegistered(clientId)) {
@@ -275,6 +296,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
         EmbeddingResponse response = EmbeddingResponse.newBuilder().addAllEmbedding(embedding).build();
         responseObserver.onNext(response);
         responseObserver.onCompleted();
+        logger.info(() -> "Returned embedding of size " + embedding.size() + " for client " + clientId);
         return;
     }
 
