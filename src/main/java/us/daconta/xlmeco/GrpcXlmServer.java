@@ -15,12 +15,27 @@ public class GrpcXlmServer {
 
     private static Properties loadProperties(String fileName) throws IOException {
         logger.info(() -> "Loading properties from " + fileName);
-        Properties properties = new Properties();
-        try (InputStream input = GrpcXlmServer.class.getClassLoader().getResourceAsStream(fileName)) {
-            if (input == null) {
-                throw new FileNotFoundException("Sorry, unable to find " + fileName);
+
+        // Load defaults from the template so that new providers (like Ollama) are available
+        // even if an older config.properties file is missing their entries.
+        Properties defaultProperties = new Properties();
+        try (InputStream defaultsStream = GrpcXlmServer.class.getClassLoader()
+                .getResourceAsStream(fileName + ".template")) {
+            if (defaultsStream != null) {
+                defaultProperties.load(defaultsStream);
+                logger.info(() -> "Loaded default properties from " + fileName + ".template");
+            } else {
+                logger.warning(() -> "No template file found for " + fileName + "; proceeding without defaults");
             }
-            properties.load(input);
+        }
+
+        Properties properties = new Properties(defaultProperties);
+        try (InputStream input = GrpcXlmServer.class.getClassLoader().getResourceAsStream(fileName)) {
+            if (input != null) {
+                properties.load(input);
+            } else {
+                logger.warning(() -> "Config file " + fileName + " not found; using defaults only");
+            }
         }
         logger.info(() -> "Loaded properties: " + properties);
         return properties;
