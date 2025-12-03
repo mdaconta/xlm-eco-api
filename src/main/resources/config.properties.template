@@ -29,6 +29,7 @@ grok.default_embedding_model=
 # Ollama provider configuration
 ollama.chat_url=http://localhost:11434/api/chat
 ollama.default_lm_model=llama3
+ollama.timeout_seconds=120
 
 # Vector DB Providers
 milvus.host=127.0.0.1
