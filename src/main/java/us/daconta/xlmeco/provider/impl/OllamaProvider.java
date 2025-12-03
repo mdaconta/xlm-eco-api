@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Properties;
+import java.time.Duration;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -28,8 +29,9 @@ public class OllamaProvider extends AbstractGenerativeProvider implements ChatPr
     public static final String VERSION = "1.0";
 
     private static final MediaType JSON = MediaType.parse("application/json");
+    private static final String PROPERTY_TIMEOUT_SECONDS = "timeout_seconds";
 
-    private final OkHttpClient httpClient = new OkHttpClient();
+    private OkHttpClient httpClient;
     private String apiKey;
     private String chatURL;
     private String defaultLanguageModel;
@@ -43,6 +45,14 @@ public class OllamaProvider extends AbstractGenerativeProvider implements ChatPr
         this.apiKey = configProperties.getProperty(GenerativeProvider.API_KEY);
         this.chatURL = configProperties.getProperty(GenerativeProvider.PROPERTY_URL_CHAT, "http://localhost:11434/api/chat");
         this.defaultLanguageModel = configProperties.getProperty(GenerativeProvider.PROPERTY_DEFAULT_MODEL_LM, "llama3");
+
+        long timeoutSeconds = parseTimeoutSeconds(configProperties.getProperty(PROPERTY_TIMEOUT_SECONDS));
+        this.httpClient = new OkHttpClient.Builder()
+                .callTimeout(Duration.ofSeconds(timeoutSeconds))
+                .connectTimeout(Duration.ofSeconds(timeoutSeconds))
+                .readTimeout(Duration.ofSeconds(timeoutSeconds))
+                .writeTimeout(Duration.ofSeconds(timeoutSeconds))
+                .build();
     }
 
     @Override
@@ -173,6 +183,18 @@ public class OllamaProvider extends AbstractGenerativeProvider implements ChatPr
         }
 
         return builder.build();
+    }
+
+    private long parseTimeoutSeconds(String timeoutProperty) {
+        if (timeoutProperty == null || timeoutProperty.isBlank()) {
+            return 120;
+        }
+        try {
+            long parsed = Long.parseLong(timeoutProperty);
+            return parsed > 0 ? parsed : 120;
+        } catch (NumberFormatException ex) {
+            return 120;
+        }
     }
 
     private String resolveModelName(ChatRequest request) {

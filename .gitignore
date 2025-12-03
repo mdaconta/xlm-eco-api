@@ -44,8 +44,9 @@ node_modules/
 node/
 
 # Ignore generated gRPC code
-generated/
-python_client/generated
+/generated/
+python_client/generated/*
+!python_client/generated/.gitkeep
 
 #python
 *.pyc
