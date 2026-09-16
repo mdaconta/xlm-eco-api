@@ -37,7 +37,7 @@ public class GrpcXlmServer {
                 logger.warning(() -> "Config file " + fileName + " not found; using defaults only");
             }
         }
-        logger.info(() -> "Loaded properties: " + properties);
+        logger.info(() -> "Loaded configuration; property count: " + properties.stringPropertyNames().size());
         return properties;
     }
 

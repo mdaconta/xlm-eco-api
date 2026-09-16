@@ -8,6 +8,7 @@ openai.api_key=<your-api-key>
 openai.chat_url=https://api.openai.com/v1/chat/completions
 openai.embedding_url=https://api.openai.com/v1/embeddings
 openai.default_lm_model=gpt-4o-mini
+openai.vision_models=gpt-4o-mini
 openai.default_embedding_model=text-embedding-ada-002
 
 # Google provider configuration

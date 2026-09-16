@@ -1,0 +1,26 @@
+# Increment 3A verification record
+
+Date: 2026-09-16. Contract: `StructuredImageRequest` version 1, additive `generateStructuredImage` RPC. This record distinguishes automated local evidence from remote operational acceptance.
+
+AMAD4Q gates: Mentor Design Gate **PASS WITH FINDINGS** (3 MiB limit, exact OpenAI schema wrapper, non-success proto3 enum default, and network size test incorporated); Mentor Quality Gate **PASS** after strict JSON parsing and remote-script assertion findings were corrected. Architect Acceptance: **PENDING HUMAN ARCHITECT REVIEW**.
+
+## Local automated evidence
+
+- `mvn verify -q -o` passed on Java 21 / Maven 3.9.11, compiling Java/generated gRPC sources, generating Python stubs, running all 4 JUnit tests, and building the shaded server JAR. The source/target level remains Java 17. Prior baseline had no `src/test` suite.
+- Network gRPC test exercised a 3 MiB inline request and confirmed it reached service validation under the default inbound limit. Other tests checked image plus text construction, PNG MIME/data URL propagation, explicit provider/model, JSON Schema wrapper, normalized success with returned model identity, malformed media/schema, unsupported provider/model, 401/429/429 quota/503/504 mapping, malformed provider envelope, invalid structured content (including nonstandard JSON and trailing tokens), and preservation of the old `syncChat` request/response path.
+- Python generated stub import passed: existing `ChatRequest.prompt` tag 2 and new `StructuredImageRequest.image` tag 3. Node runtime proto loading exposed both `syncChat` and `generateStructuredImage`. The Java client and server compiled against regenerated Java stubs. `python -m py_compile` passed for the opt-in remote check script.
+- `mvn test` initially failed during test compilation because a `parseFrom` assertion omitted a checked exception declaration; corrected, then passed. The first provider-response test exposed double consumption of the bounded HTTP response body; corrected and retained as a regression. No failure was suppressed.
+
+## Real remote end-to-end acceptance: passed
+
+- Provider/model: OpenAI / `gpt-4o-mini` through the configured OpenAI adapter and Chat Completions endpoint.
+- Input: generated generic 96 x 96 PNG (blue background, red center square), `image/png`, visual color instruction, one image, caller JSON Schema for `{color: string}`. The Python script called the local XLM server over gRPC; XLM sent the request to the real remote provider. No mock was used for this attempt.
+- Initial attempt returned `PROVIDER_UNAVAILABLE` because this Java runtime did not trust the endpoint certificate chain. A credential-free Java HTTPS probe confirmed PKIX failure. Retesting the same probe with Java's `Windows-ROOT` trusted store returned HTTP 401, confirming TLS succeeded without disabling certificate validation. The XLM server was restarted with that trust-store setting.
+- With verified TLS, the first remote image call returned HTTP 429 in 1,371 ms. XLM normalized it to `PROVIDER_QUOTA`, `retryable=false`, provider/model identity `openai`/`gpt-4o-mini`, status `STRUCTURED_IMAGE_FAILED`, and safe message `Provider quota or spend limit reached`. The provider error code was inspected only in memory to distinguish quota from transient rate limiting; no credential or raw provider body was printed or stored. The owner then restored API quota.
+- The subsequent run of `python src/test/python/remote_structured_image_check.py` against the packaged XLM server **passed** (exit code 0). XLM received the one-image gRPC request, sent it through the OpenAI adapter, and returned `STRUCTURED_IMAGE_COMPLETED`, `success=true`, provider `openai`, actual provider model `gpt-4o-mini-2024-07-18`, and structured JSON `{"color":"red"}`. Measured image-call latency was 3,552 ms. The accepted input was the generic PNG and visual color instruction described above, with `image/png` and the caller-supplied JSON Schema.
+- In that same real run, an explicitly unsupported model returned `UNSUPPORTED_MODEL` with `success=false`; a malformed-schema request reached OpenAI and returned normalized `PROVIDER_FAILURE`, HTTP 400, `retryable=false`; and the existing `syncChat` path returned the expected remote text completion `OK`. These assertions are enforced by the script and would cause a nonzero exit if unmet. No Video Inventory data was used.
+- Operational Acceptance for the specified one-image remote XLM scenario is **demonstrated** on this host. This evidence does not establish accuracy on other images, additional providers/models, local VLM behavior, large-media transport, or human Architect Acceptance.
+
+## Reproduction boundary
+
+Build with `mvn verify`. Run the packaged server with a configured OpenAI key and a trusted TLS root store; on this Windows host the successful TLS probe used `-Djavax.net.ssl.trustStoreType=Windows-ROOT -Djavax.net.ssl.trustStore=NONE`. Run the opt-in script from the repository root. It emits contract version, provider/model, MIME type, structured result, latency, normalized error evidence, and legacy text completion without printing credentials. The passed run above, not the local mock tests, supports the remote success claim.

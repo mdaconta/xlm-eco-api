@@ -6,6 +6,7 @@ import us.daconta.xlmeco.provider.ChatProvider;
 import us.daconta.xlmeco.provider.EmbeddingProvider;
 import us.daconta.xlmeco.provider.GenerativeProvider;
 import us.daconta.xlmeco.provider.GenerativeProviderFactory;
+import us.daconta.xlmeco.provider.StructuredImageProvider;
 import us.daconta.xlmeco.provider.impl.GoogleProvider;
 import us.daconta.xlmeco.provider.impl.OpenAIProvider;
 import us.daconta.xlmeco.provider.impl.GrokProvider;
@@ -18,6 +19,10 @@ import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.nio.charset.StandardCharsets;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosystemServiceImplBase {
     // In-memory map for registered clients (can be replaced with a database)
@@ -25,6 +30,8 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
     private final Map<String, Map<String, GenerativeProvider>> clientProviderMap = new ConcurrentHashMap<>();  // client_id -> (capability -> provider)
     private Map<String, GenerativeProvider> providers = new ConcurrentHashMap<String, GenerativeProvider>();
     private static final Logger logger = Logger.getLogger(XlmEcosystemServiceImpl.class.getName());
+    private static final ObjectMapper JSON = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     public XlmEcosystemServiceImpl(Properties properties) {
         this.providers = GenerativeProviderFactory.loadProviders(properties);
@@ -135,6 +142,91 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
         logger.info(() -> "Returning sync chat response for client " + clientId);
         responseObserver.onNext(response);
         responseObserver.onCompleted();
+    }
+
+    @Override
+    public void generateStructuredImage(StructuredImageRequest request,
+                                        StreamObserver<StructuredImageResponse> responseObserver) {
+        String selectedProvider = request.getProvider().trim().toLowerCase(java.util.Locale.ROOT);
+        String selectedModel = request.getModel().trim();
+        StructuredImageError failure = validateStructuredImage(request);
+        if (failure == null && !registeredClients.containsKey(request.getClientId())) {
+            failure = error(StructuredImageErrorCode.INVALID_REQUEST, "Client is not registered", false, 0);
+        }
+        GenerativeProvider provider = failure == null ? providers.get(selectedProvider) : null;
+        if (failure == null && (provider == null || !(provider instanceof StructuredImageProvider))) {
+            failure = error(StructuredImageErrorCode.UNSUPPORTED_PROVIDER,
+                    "Provider is unavailable for structured image requests", false, 0);
+        }
+        if (failure == null && !((StructuredImageProvider) provider).supportsStructuredImageModel(selectedModel)) {
+            failure = error(StructuredImageErrorCode.UNSUPPORTED_MODEL,
+                    "Model is not enabled for structured image requests", false, 0);
+        }
+        StructuredImageResponse.Builder result = StructuredImageResponse.newBuilder()
+                .setProvider(selectedProvider).setModel(selectedModel);
+        if (failure == null) {
+            try {
+                StructuredImageProvider.Result output = ((StructuredImageProvider) provider).generateStructuredImage(
+                        new StructuredImageProvider.Input(request.getInstructions(), request.getImage().getMimeType(),
+                                request.getImage().getData().toByteArray(), selectedModel, request.getJsonSchema()));
+                result.setSuccess(true).setStatus(StructuredImageStatus.STRUCTURED_IMAGE_COMPLETED)
+                        .setJsonPayload(output.jsonPayload()).setModel(output.model());
+            } catch (StructuredImageProvider.Failure e) {
+                failure = error(e.code(), e.getMessage(), e.retryable(), e.httpStatus());
+            } catch (RuntimeException e) {
+                logger.log(Level.WARNING, "Unexpected structured image provider failure", e.getClass().getName());
+                failure = error(StructuredImageErrorCode.PROVIDER_FAILURE, "Provider request failed", false, 0);
+            }
+        }
+        if (failure != null) {
+            result.setSuccess(false).setStatus(StructuredImageStatus.STRUCTURED_IMAGE_FAILED).setError(failure);
+        }
+        responseObserver.onNext(result.build());
+        responseObserver.onCompleted();
+    }
+
+    private static StructuredImageError validateStructuredImage(StructuredImageRequest request) {
+        if (request.getClientId().isBlank() || request.getClientId().length() > 128
+                || request.getProvider().isBlank() || request.getProvider().length() > 128
+                || request.getModel().isBlank() || request.getModel().length() > 128
+                || request.getInstructions().isBlank()
+                || request.getInstructions().getBytes(StandardCharsets.UTF_8).length > 65_536
+                || request.getJsonSchema().isBlank()
+                || request.getJsonSchema().getBytes(StandardCharsets.UTF_8).length > 65_536
+                || !request.hasImage()) {
+            return error(StructuredImageErrorCode.INVALID_REQUEST, "Required field is missing or exceeds limit", false, 0);
+        }
+        try {
+            if (!JSON.readTree(request.getJsonSchema()).isObject()) {
+                return error(StructuredImageErrorCode.INVALID_REQUEST, "JSON schema must be an object", false, 0);
+            }
+        } catch (JsonProcessingException e) {
+            return error(StructuredImageErrorCode.INVALID_REQUEST, "JSON schema must be an object", false, 0);
+        }
+        ImageInput image = request.getImage();
+        if (image.getData().isEmpty() || image.getData().size() > 3 * 1024 * 1024
+                || !matchesMime(image.getMimeType(), image.getData().toByteArray())) {
+            return error(StructuredImageErrorCode.INVALID_REQUEST, "Image bytes or MIME type are invalid", false, 0);
+        }
+        return null;
+    }
+
+    private static boolean matchesMime(String mime, byte[] data) {
+        if ("image/png".equals(mime)) return data.length >= 8
+                && (data[0] & 255) == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G'
+                && data[4] == 13 && data[5] == 10 && data[6] == 26 && data[7] == 10;
+        if ("image/jpeg".equals(mime)) return data.length >= 4
+                && (data[0] & 255) == 0xff && (data[1] & 255) == 0xd8 && (data[2] & 255) == 0xff;
+        if ("image/webp".equals(mime)) return data.length >= 12
+                && data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F'
+                && data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P';
+        return false;
+    }
+
+    private static StructuredImageError error(StructuredImageErrorCode code, String message,
+                                              boolean retryable, int status) {
+        return StructuredImageError.newBuilder().setCode(code).setMessage(message)
+                .setRetryable(retryable).setProviderHttpStatus(status).build();
     }
 
     @Override

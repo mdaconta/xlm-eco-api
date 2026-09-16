@@ -13,6 +13,9 @@ service XlmEcosystemService {
     // Asynchronous Chat API, streaming chat with a request stream and a response stream.
     rpc asyncChat (ChatRequest) returns (stream ChatResponsePart);
 
+    // Increment 3A: one image and caller-defined structured JSON output.
+    rpc generateStructuredImage (StructuredImageRequest) returns (StructuredImageResponse);
+
     // ---- Embedding API ----
     rpc getEmbedding(EmbeddingRequest) returns (EmbeddingResponse);
 
@@ -164,6 +167,61 @@ message ChatResponse {
 
 message ChatResponsePart {
     string token = 1; // Tokenized response for streaming
+}
+
+// Version 1. Inline bytes are limited to 3 MiB; supported MIME types are
+// image/png, image/jpeg and image/webp. Only one image is accepted.
+message ImageInput {
+    string mime_type = 1;
+    bytes data = 2;
+}
+
+message StructuredImageRequest {
+    string client_id = 1;
+    string instructions = 2;
+    ImageInput image = 3;
+    string provider = 4;
+    string model = 5;
+    // A JSON Schema object serialized as UTF-8 JSON. Required.
+    string json_schema = 6;
+}
+
+enum StructuredImageStatus {
+    STRUCTURED_IMAGE_STATUS_UNSPECIFIED = 0;
+    STRUCTURED_IMAGE_COMPLETED = 1;
+    STRUCTURED_IMAGE_FAILED = 2;
+}
+
+enum StructuredImageErrorCode {
+    STRUCTURED_IMAGE_ERROR_UNSPECIFIED = 0;
+    INVALID_REQUEST = 1;
+    UNSUPPORTED_PROVIDER = 2;
+    UNSUPPORTED_MODEL = 3;
+    PROVIDER_AUTHENTICATION = 4;
+    PROVIDER_RATE_LIMIT = 5;
+    PROVIDER_TIMEOUT = 6;
+    PROVIDER_UNAVAILABLE = 7;
+    PROVIDER_FAILURE = 8;
+    MALFORMED_PROVIDER_RESPONSE = 9;
+    INVALID_STRUCTURED_OUTPUT = 10;
+    PROVIDER_QUOTA = 11;
+}
+
+message StructuredImageError {
+    StructuredImageErrorCode code = 1;
+    string message = 2;
+    bool retryable = 3;
+    int32 provider_http_status = 4;
+}
+
+message StructuredImageResponse {
+    // A JSON object on success. Empty on failure.
+    string json_payload = 1;
+    string provider = 2;
+    string model = 3;
+    bool success = 4;
+    StructuredImageStatus status = 5;
+    StructuredImageError error = 6;
 }
 
 message EmbeddingRequest {
