@@ -156,7 +156,7 @@ node ./node_client/app.js --host 127.0.0.1 --port 50052 --provider openai --mode
 
 Note: there will be a client created for every language supported by gRPC (Python, C#, C, Go, Rust, etc.)
 
-## Structured image generation (Increment 3A)
+## Structured image analysis (Increment 3A)
 
 `generateStructuredImage` is an additive unary gRPC method. Register a client, then send a `StructuredImageRequest` with nonempty instructions, one `ImageInput`, explicit `provider` and `model`, and a JSON Schema object serialized in `json_schema`. Inline image bytes are limited to 3 MiB and must match `image/png`, `image/jpeg`, or `image/webp`; instructions and schema are limited to 64 KiB each. The configured `openai` adapter supports only models listed in `openai.vision_models` (default `gpt-4o-mini`). The method does not use preferred-provider routing or fallback.
 
@@ -165,6 +165,8 @@ On success, `StructuredImageResponse` contains a JSON-object `json_payload`, pro
 `mvn verify` regenerates Java and Python protobuf stubs and runs the local network tests. Node loads the updated `.proto` at runtime. To run the opt-in real remote check, start the packaged server with a configured OpenAI key, then run `python src/test/python/remote_structured_image_check.py`. The script generates a small generic PNG in memory; it does not print credentials. On Windows installations where Java's bundled trust store lacks the trusted root used for the provider connection, Java can use the Windows trusted root store with `-Djavax.net.ssl.trustStoreType=Windows-ROOT -Djavax.net.ssl.trustStore=NONE`; certificate verification stays enabled. Remote success also requires available provider quota.
 
 The design, gap analysis and verification record are in `docs/increment-3a-*.md`.
+
+The local [XLM Chat verification walkthrough](docs/chat-ui-user-verification.md) covers one-image analysis, a provider error case, and existing text chat in the browser. This capability analyzes an image and returns structured JSON; it does not generate images.
 
 ## Conclusion
 

@@ -41,7 +41,13 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=50052)
     parser.add_argument("--model", default="gpt-4o-mini")
+    parser.add_argument("--write-sample-image", type=Path,
+                        help="Write the generic red-square PNG and exit without contacting XLM")
     args = parser.parse_args()
+    if args.write_sample_image:
+        args.write_sample_image.write_bytes(generic_image())
+        print(f"Wrote generic image: {args.write_sample_image}")
+        return
     client_id = str(uuid.uuid4())
     with grpc.insecure_channel(f"{args.host}:{args.port}") as channel:
         stub = rpc.XlmEcosystemServiceStub(channel)
