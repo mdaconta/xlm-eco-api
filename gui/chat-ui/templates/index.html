@@ -85,6 +85,7 @@
     </style>
 </head>
 <body>
+    <p><a href="/admin">XLM Administration</a></p>
     <h1>XLM Chat</h1>
     <div id="modeControls">
         <label for="modeSelect">Mode</label>
@@ -118,7 +119,7 @@
 
     <script>
         const uiToken = {{ ui_token|tojson }};
-        const socket = io();
+        const socket = io({auth: {token: uiToken}});
         const chatBox = document.getElementById('chatBox');
         const titleContainer = document.getElementById('titleContainer');
         const messageInput = document.getElementById('messageInput');

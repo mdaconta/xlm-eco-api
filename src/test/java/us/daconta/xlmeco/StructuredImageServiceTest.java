@@ -59,6 +59,7 @@ class StructuredImageServiceTest {
         config.setProperty("openai.api_key", "test-key");
         config.setProperty("openai.chat_url", "http://127.0.0.1:" + http.getAddress().getPort() + "/chat");
         config.setProperty("openai.vision_models", "test-vision");
+        config.setProperty("openai.default_lm_model", "text-model");
         grpc = ServerBuilder.forPort(0).addService(new XlmEcosystemServiceImpl(config)).build().start();
         channel = ManagedChannelBuilder.forAddress("127.0.0.1", grpc.getPort()).usePlaintext().build();
         stub = XlmEcosystemServiceGrpc.newBlockingStub(channel);
@@ -140,12 +141,12 @@ class StructuredImageServiceTest {
         StructuredImageResponse typedQuota = stub.generateStructuredImage(request());
         assertEquals(StructuredImageErrorCode.PROVIDER_QUOTA, typedQuota.getError().getCode());
         assertFalse(typedQuota.getError().getRetryable());
-        assertTrue(typedQuota.getError().getMessage().contains("provider code: insufficient_quota"));
+        assertEquals("Provider quota or spend limit reached", typedQuota.getError().getMessage());
         httpStatus = 403;
         reply.set("{\"error\":{\"code\":\"model_access_denied\",\"message\":\"secret provider diagnostic\"}}");
         StructuredImageResponse forbidden = stub.generateStructuredImage(request());
         assertEquals(StructuredImageErrorCode.PROVIDER_AUTHENTICATION, forbidden.getError().getCode());
-        assertEquals("Provider returned HTTP 403 (provider code: model_access_denied)", forbidden.getError().getMessage());
+        assertEquals("Provider returned HTTP 403", forbidden.getError().getMessage());
         assertFalse(forbidden.toString().contains("secret provider diagnostic"));
         reply.set("{\"error\":{\"code\":\"Bearer_secret-token\",\"message\":\"private details\"}}");
         assertEquals("Provider returned HTTP 403", stub.generateStructuredImage(request()).getError().getMessage());

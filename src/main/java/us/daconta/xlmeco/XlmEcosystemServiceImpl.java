@@ -1,194 +1,155 @@
 package us.daconta.xlmeco;
 
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import us.daconta.xlmeco.grpc.*;
-import us.daconta.xlmeco.provider.ChatProvider;
-import us.daconta.xlmeco.provider.EmbeddingProvider;
-import us.daconta.xlmeco.provider.GenerativeProvider;
-import us.daconta.xlmeco.provider.GenerativeProviderFactory;
-import us.daconta.xlmeco.provider.StructuredImageProvider;
-import us.daconta.xlmeco.provider.impl.GoogleProvider;
-import us.daconta.xlmeco.provider.impl.OpenAIProvider;
-import us.daconta.xlmeco.provider.impl.GrokProvider;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.ServiceLoader;
+import us.daconta.xlmeco.provider.*;
+import us.daconta.xlmeco.admin.ProviderRegistry;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.nio.charset.StandardCharsets;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.core.JsonProcessingException;
 
 public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosystemServiceImplBase {
-    // In-memory map for registered clients (can be replaced with a database)
-    private final Map<String, String> registeredClients = new ConcurrentHashMap<>();  // client_id -> client_name
-    private final Map<String, Map<String, GenerativeProvider>> clientProviderMap = new ConcurrentHashMap<>();  // client_id -> (capability -> provider)
-    private Map<String, GenerativeProvider> providers = new ConcurrentHashMap<String, GenerativeProvider>();
-    private static final Logger logger = Logger.getLogger(XlmEcosystemServiceImpl.class.getName());
-    private static final ObjectMapper JSON = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-
-    public XlmEcosystemServiceImpl(Properties properties) {
-        this.providers = GenerativeProviderFactory.loadProviders(properties);
-        logger.info(() -> "Loaded providers: " + providers.keySet());
+    private static final ObjectMapper JSON = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private final ProviderRegistry registry;
+    private final Map<String,Map<String,String>> clients = new ConcurrentHashMap<>();
+    public XlmEcosystemServiceImpl(ProviderRegistry registry) { this.registry=registry; }
+    public XlmEcosystemServiceImpl(Properties properties) { this(ProviderRegistry.inMemory(properties)); }
+    private static <T> void reply(StreamObserver<T> observer,T response) { observer.onNext(response); observer.onCompleted(); }
+    private Map<String,String> client(String id) {
+        Map<String,String> choices=clients.get(id);
+        if(choices==null) throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.PRECONDITION,"Client is not registered");
+        return choices;
     }
-
-    private Properties filterPropertiesForPrefix(Properties properties, String prefix) {
-        Properties subset = new Properties();
-        for (String name : properties.stringPropertyNames()) {
-            if (name.startsWith(prefix)) {
-                subset.put(name.substring(prefix.length()), properties.getProperty(name));
-            }
-        }
-        return subset;
+    @Override public void registerClient(ClientRegistrationRequest r,StreamObserver<ClientRegistrationResponse> o) {
+        boolean valid=!r.getClientId().isBlank()&&r.getClientId().length()<=128;
+        boolean success=valid&&clients.putIfAbsent(r.getClientId(),Map.of())==null;
+        reply(o,ClientRegistrationResponse.newBuilder().setSuccess(success).setMessage(success?"Client registered":"Invalid or duplicate client").build());
     }
-
-    @Override
-    public void registerClient(ClientRegistrationRequest request, StreamObserver<ClientRegistrationResponse> responseObserver) {
-        String clientId = request.getClientId();
-        String clientName = request.getClientName();
-        logger.info(() -> "Registering client. id=" + clientId + ", name=" + clientName);
-
-        if (registeredClients.containsKey(clientId)) {
-            ClientRegistrationResponse response = ClientRegistrationResponse.newBuilder()
-                    .setSuccess(false)
-                    .setMessage("Client already registered with ID: " + clientId)
-                    .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
-            return;
-        }
-
-        // Store the client ID and name
-        registeredClients.put(clientId, clientName == null || clientName.isEmpty() ? "Unknown" : clientName);
-        logger.info(() -> "Client registered. id=" + clientId + ", name=" + registeredClients.get(clientId));
-
-        ClientRegistrationResponse response = ClientRegistrationResponse.newBuilder()
-                .setSuccess(true)
-                .setMessage("Client registered successfully with ID: " + clientId)
-                .build();
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
+    @Override public void unregisterClient(ClientUnregistrationRequest r,StreamObserver<ClientUnregistrationResponse> o) {
+        boolean success=clients.remove(r.getClientId())!=null;
+        reply(o,ClientUnregistrationResponse.newBuilder().setSuccess(success).setMessage(success?"Client unregistered":"Client not found").build());
     }
-
-    @Override
-    public void unregisterClient(ClientUnregistrationRequest request, StreamObserver<ClientUnregistrationResponse> responseObserver) {
-        String clientId = request.getClientId();
-        logger.info(() -> "Unregistering client. id=" + clientId);
-
-        if (!registeredClients.containsKey(clientId)) {
-            ClientUnregistrationResponse response = ClientUnregistrationResponse.newBuilder()
-                    .setSuccess(false)
-                    .setMessage("Client not found with ID: " + clientId)
-                    .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
-            return;
-        }
-
-        // Remove the client
-        registeredClients.remove(clientId);
-        clientProviderMap.remove(clientId); // Remove associated provider choices
-        logger.info(() -> "Client unregistered. id=" + clientId);
-
-        ClientUnregistrationResponse response = ClientUnregistrationResponse.newBuilder()
-                .setSuccess(true)
-                .setMessage("Client unregistered successfully with ID: " + clientId)
-                .build();
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
-    }
-
-
-    @Override
-    public void syncChat(ChatRequest request, StreamObserver<ChatResponse> responseObserver) {
-        String clientId = request.getClientId();
-        logger.info(() -> "Received sync chat request from client " + clientId + " with prompt size " + request.getPrompt().length());
-        if (!registeredClients.containsKey(clientId)) {
-            responseObserver.onError(new UnsupportedOperationException("Client Id" + clientId + " is not registered."));
-            return;
-        }
-
-        // Check if the client has a provider for the "chat" capability
-        Map<String, GenerativeProvider> clientProviders = clientProviderMap.get(clientId);
-        if (clientProviders == null || !clientProviders.containsKey("chat")) {
-            responseObserver.onError(new IllegalArgumentException("No provider selected for 'chat' capability for client: " + clientId));
-            return;
-        }
-
-        // Retrieve the provider for the "chat" capability
-        GenerativeProvider provider = clientProviders.get("chat");
-
-        if (!provider.supportsChat()) {
-            responseObserver.onError(new UnsupportedOperationException("Chat is not supported by this provider."));
-            return;
-        }
-
-        ChatProvider chatProvider = (ChatProvider) provider;
-        String completion;
+    @Override public void setPreferredProviders(ProviderSelectionRequest r,StreamObserver<SelectionResponse> o) {
         try {
-            completion = chatProvider.generateChatResponse(request);
-        } catch (Exception e) {
-            completion = "Error: " + e.getMessage();
-            logger.log(Level.SEVERE, "Error generating chat response", e);
-        }
-
-        ChatResponse response = ChatResponse.newBuilder().setCompletion(completion).build();
-        logger.info(() -> "Returning sync chat response for client " + clientId);
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
-    }
-
-    @Override
-    public void generateStructuredImage(StructuredImageRequest request,
-                                        StreamObserver<StructuredImageResponse> responseObserver) {
-        String selectedProvider = request.getProvider().trim().toLowerCase(java.util.Locale.ROOT);
-        String selectedModel = request.getModel().trim();
-        StructuredImageError failure = validateStructuredImage(request);
-        if (failure == null && !registeredClients.containsKey(request.getClientId())) {
-            failure = error(StructuredImageErrorCode.INVALID_REQUEST, "Client is not registered", false, 0);
-        }
-        GenerativeProvider provider = failure == null ? providers.get(selectedProvider) : null;
-        if (failure == null && (provider == null || !(provider instanceof StructuredImageProvider))) {
-            failure = error(StructuredImageErrorCode.UNSUPPORTED_PROVIDER,
-                    "Provider is unavailable for structured image requests", false, 0);
-        }
-        if (failure == null && !((StructuredImageProvider) provider).supportsStructuredImageModel(selectedModel)) {
-            failure = error(StructuredImageErrorCode.UNSUPPORTED_MODEL,
-                    "Model is not enabled for structured image requests", false, 0);
-        }
-        StructuredImageResponse.Builder result = StructuredImageResponse.newBuilder()
-                .setProvider(selectedProvider).setModel(selectedModel);
-        if (failure == null) {
-            try {
-                StructuredImageProvider.Result output = ((StructuredImageProvider) provider).generateStructuredImage(
-                        new StructuredImageProvider.Input(request.getInstructions(), request.getImage().getMimeType(),
-                                request.getImage().getData().toByteArray(), selectedModel, request.getJsonSchema()));
-                result.setSuccess(true).setStatus(StructuredImageStatus.STRUCTURED_IMAGE_COMPLETED)
-                        .setJsonPayload(output.jsonPayload()).setModel(output.model());
-            } catch (StructuredImageProvider.Failure e) {
-                failure = error(e.code(), e.getMessage(), e.retryable(), e.httpStatus());
-            } catch (RuntimeException e) {
-                logger.log(Level.WARNING, "Unexpected structured image provider failure", e.getClass().getName());
-                failure = error(StructuredImageErrorCode.PROVIDER_FAILURE, "Provider request failed", false, 0);
+            var snapshot=registry.snapshot(); Map<String,String> choices=new HashMap<>(client(r.getClientId()));
+            Set<String> assigned=new HashSet<>();
+            for(var entry:r.getProviderCapabilitiesMap().entrySet()) {
+                var provider=snapshot.state().providers().get(entry.getKey());
+                if(provider==null||!provider.enabled()) throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.PRECONDITION,"Provider unavailable");
+                for(String capability:entry.getValue().getCapabilitiesList()) {
+                    if(!ProviderRegistry.capabilities(provider.id()).contains(capability)||!assigned.add(capability))
+                        throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.INVALID,"Invalid capability selection");
+                    choices.put(capability,provider.id());
+                }
             }
-        }
-        if (failure != null) {
-            result.setSuccess(false).setStatus(StructuredImageStatus.STRUCTURED_IMAGE_FAILED).setError(failure);
-        }
-        responseObserver.onNext(result.build());
-        responseObserver.onCompleted();
+            if(clients.replace(r.getClientId(),Map.copyOf(choices))==null) throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.PRECONDITION,"Client is not registered");
+            reply(o,SelectionResponse.newBuilder().setSuccess(true).setMessage("Preferences updated").build());
+        } catch(ProviderRegistry.Invalid e) { reply(o,SelectionResponse.newBuilder().setSuccess(false).setMessage(e.getMessage()).build()); }
     }
-
+    private ProviderRegistry.Selection select(ProviderRegistry.Snapshot s,String id,String cap,String p,String m) {
+        String preference=client(id).get(cap);
+        var selected=ProviderRegistry.resolve(s,cap,p,m,cap.equals("structured_image")?null:preference);
+        ensureCredentials(s, selected, cap);
+        return selected;
+    }
+    private static void ensureCredentials(ProviderRegistry.Snapshot s, ProviderRegistry.Selection selected, String cap) {
+        var config=s.state().providers().get(selected.provider()).configuration();
+        boolean legacyGoogleAdc=selected.provider().equals("google")&&!cap.equals("structured_image")
+                &&config.containsKey("project_id")&&config.containsKey("location");
+        if(!selected.provider().equals("ollama")&&!legacyGoogleAdc&&!s.credentials().getOrDefault(selected.provider(),false))
+            throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.PRECONDITION,"Provider credential is not configured");
+    }
+    private static void safeFailure(StreamObserver<?> o,Throwable e) {
+        if(e instanceof ProviderRegistry.Invalid invalid) {
+            Status status=switch(invalid.kind) {
+                case INVALID -> Status.INVALID_ARGUMENT; case NOT_FOUND -> Status.NOT_FOUND;
+                case PRECONDITION -> Status.FAILED_PRECONDITION; case STALE -> Status.ABORTED;
+            };
+            o.onError(status.withDescription(invalid.getMessage()).asRuntimeException());
+        } else if(e instanceof SafeProviderFailure failure) {
+            o.onError(Status.UNAVAILABLE.withDescription(failure.safeMessage()).asRuntimeException());
+        } else o.onError(Status.UNAVAILABLE.withDescription("PROVIDER_FAILURE").asRuntimeException());
+    }
+    @Override public void syncChat(ChatRequest r,StreamObserver<ChatResponse> o) {
+        try {
+            var s=registry.snapshot(); var chosen=select(s,r.getClientId(),"chat",r.getProvider(),r.getModelName());
+            String text=((ChatProvider)s.adapters().get(chosen.provider())).generateChatResponse(r.toBuilder().setProvider(chosen.provider()).setModelName(chosen.model()).build());
+            reply(o,ChatResponse.newBuilder().setCompletion(text).build());
+        } catch(Exception e) { safeFailure(o,e); }
+    }
+    @Override public void asyncChat(ChatRequest r,StreamObserver<ChatResponsePart> o) {
+        try {
+            var s=registry.snapshot(); var chosen=select(s,r.getClientId(),"chat",r.getProvider(),r.getModelName());
+            ((ChatProvider)s.adapters().get(chosen.provider())).streamChatResponse(r.toBuilder().setProvider(chosen.provider()).setModelName(chosen.model()).build(),new StreamObserver<ChatResponsePart>() {
+                public void onNext(ChatResponsePart value) { o.onNext(value); }
+                public void onError(Throwable failure) { safeFailure(o,failure); }
+                public void onCompleted() { o.onCompleted(); }
+            });
+        } catch(Exception e) { safeFailure(o,e); }
+    }
+    @Override public void getEmbedding(EmbeddingRequest r,StreamObserver<EmbeddingResponse> o) {
+        try {
+            var s=registry.snapshot(); String requestedModel=r.getModel().isBlank()?r.getModelParameters().getParametersOrDefault("model",""):r.getModel();
+            var chosen=select(s,r.getClientId(),"embedding",r.getProvider(),requestedModel);
+            var params=r.getModelParameters().toBuilder().putParameters("model",chosen.model()).build();
+            var embedding=((EmbeddingProvider)s.adapters().get(chosen.provider())).generateEmbedding(r.getText(),params);
+            reply(o,EmbeddingResponse.newBuilder().addAllEmbedding(embedding).build());
+        } catch(Exception e) { safeFailure(o,e); }
+    }
+    @Override public void listProviders(EmptyRequest r,StreamObserver<ProvidersListResponse> o) {
+        var s=registry.snapshot(); var response=ProvidersListResponse.newBuilder();
+        s.state().providers().values().stream().sorted(Comparator.comparing(ProviderRegistry.Provider::id)).forEach(p -> {
+            Map<String,Boolean> caps=new HashMap<>(); for(String c:List.of("chat","embedding","structured_image","rag","agents"))caps.put(c,ProviderRegistry.capabilities(p.id()).contains(c)&&p.enabled());
+            response.addProviders(ProviderInfo.newBuilder().setProviderName(p.id()).setServiceLevel(s.adapters().get(p.id()).getServiceLevel().name()).putAllCapabilities(caps));
+        });
+        reply(o,response.build());
+    }
+    @Override public void getProviderCapabilities(ProviderRequest r,StreamObserver<ProviderCapabilitiesResponse> o) {
+        try {
+            client(r.getClientId()); var s=registry.snapshot(); var p=s.state().providers().get(r.getProvider());
+            if(p==null) throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.NOT_FOUND,"Unknown provider");
+            Map<String,Boolean> caps=new HashMap<>(); for(String c:List.of("chat","embedding","structured_image","rag","agents"))caps.put(c,p.enabled()&&ProviderRegistry.capabilities(p.id()).contains(c));
+            reply(o,ProviderCapabilitiesResponse.newBuilder().setProviderName(p.id()).setServiceLevel(s.adapters().get(p.id()).getServiceLevel().name()).putAllCapabilities(caps).build());
+        } catch(Exception e) { safeFailure(o,e); }
+    }
+    @Override public void generateStructuredImage(StructuredImageRequest r,StreamObserver<StructuredImageResponse> o) {
+        String provider=r.getProvider().trim().toLowerCase(Locale.ROOT), model=r.getModel().trim();
+        StructuredImageResponse.Builder response=StructuredImageResponse.newBuilder().setProvider(provider).setModel(model);
+        StructuredImageError failure=validateStructuredImage(r);
+        if(failure==null) {
+            try {
+                var s=registry.snapshot(); client(r.getClientId());
+                var selected=ProviderRegistry.resolve(s,"structured_image",provider,model,null);
+                response.setProvider(selected.provider()).setModel(selected.model());
+                ensureCredentials(s,selected,"structured_image");
+                var adapter=(StructuredImageProvider)s.adapters().get(selected.provider());
+                var output=adapter.generateStructuredImage(new StructuredImageProvider.Input(r.getInstructions(),r.getImage().getMimeType(),r.getImage().getData().toByteArray(),selected.model(),r.getJsonSchema()));
+                response.setSuccess(true).setStatus(StructuredImageStatus.STRUCTURED_IMAGE_COMPLETED).setJsonPayload(output.jsonPayload()).setModel(output.model());
+            } catch(ProviderRegistry.Invalid e) {
+                StructuredImageErrorCode code=switch(e.getMessage()) {
+                    case "Unknown provider" -> StructuredImageErrorCode.UNSUPPORTED_PROVIDER;
+                    case "Unknown model" -> StructuredImageErrorCode.UNSUPPORTED_MODEL;
+                    case "Provider disabled" -> StructuredImageErrorCode.PROVIDER_DISABLED;
+                    case "Model disabled" -> StructuredImageErrorCode.MODEL_DISABLED;
+                    case "Incompatible capability" -> StructuredImageErrorCode.INCOMPATIBLE_CAPABILITY;
+                    case "Provider credential is not configured" -> StructuredImageErrorCode.PROVIDER_AUTHENTICATION;
+                    default -> StructuredImageErrorCode.INVALID_REQUEST;
+                };
+                failure=error(code,e.getMessage(),false,0);
+            } catch(StructuredImageProvider.Failure e) { failure=error(e.code(),e.getMessage(),e.retryable(),e.httpStatus()); }
+            catch(Exception e) { failure=error(StructuredImageErrorCode.PROVIDER_FAILURE,"Provider request failed",false,0); }
+        }
+        if(failure!=null) response.setSuccess(false).setStatus(StructuredImageStatus.STRUCTURED_IMAGE_FAILED).setError(failure);
+        reply(o,response.build());
+    }
     private static StructuredImageError validateStructuredImage(StructuredImageRequest request) {
         if (request.getClientId().isBlank() || request.getClientId().length() > 128
-                || request.getProvider().isBlank() || request.getProvider().length() > 128
-                || request.getModel().isBlank() || request.getModel().length() > 128
+                || request.getProvider().length() > 128
+                || request.getModel().length() > 128
                 || request.getInstructions().isBlank()
                 || request.getInstructions().getBytes(StandardCharsets.UTF_8).length > 65_536
                 || request.getJsonSchema().isBlank()
@@ -229,181 +190,4 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
                 .setRetryable(retryable).setProviderHttpStatus(status).build();
     }
 
-    @Override
-    public void asyncChat(ChatRequest request, StreamObserver<ChatResponsePart> responseObserver) {
-        String clientId = request.getClientId();
-        logger.info(() -> "Received async chat request from client " + clientId + " with prompt size " + request.getPrompt().length());
-        if (!registeredClients.containsKey(clientId)) {
-            responseObserver.onError(new UnsupportedOperationException("Client Id" + clientId + " is not registered."));
-            return;
-        }
-
-        // Check if the client has a provider for the "chat" capability
-        Map<String, GenerativeProvider> clientProviders = clientProviderMap.get(clientId);
-        if (clientProviders == null || !clientProviders.containsKey("chat")) {
-            responseObserver.onError(new IllegalArgumentException("No provider selected for 'chat' capability for client: " + clientId));
-            return;
-        }
-
-        // Retrieve the provider for the "chat" capability
-        GenerativeProvider provider = clientProviders.get("chat");
-
-        if (!provider.supportsChat()) {
-            responseObserver.onError(new UnsupportedOperationException("Chat is not supported by this provider."));
-            return;
-        }
-
-        ChatProvider chatProvider = (ChatProvider) provider;
-        try {
-            chatProvider.streamChatResponse(request, responseObserver);
-        } catch (Exception e) {
-            responseObserver.onError(new RuntimeException("Error: " + e.getMessage()));
-            logger.log(Level.SEVERE, "Error streaming chat response", e);
-        }
-    }
-
-    @Override
-    public void listProviders(EmptyRequest request, StreamObserver<ProvidersListResponse> responseObserver) {
-        logger.info("Listing available providers");
-        List<ProviderInfo> providerInfos = new ArrayList<>();
-
-        for (GenerativeProvider provider : providers.values()) {
-            Map<String, Boolean> capabilities = provider.getSupportedCapabilities();
-
-            ProviderInfo providerInfo = ProviderInfo.newBuilder()
-                    .setProviderName(provider.getProviderName())
-                    .setServiceLevel(provider.getServiceLevel().name())
-                    .putAllCapabilities(capabilities)
-                    .build();
-
-            providerInfos.add(providerInfo);
-        }
-
-        ProvidersListResponse response = ProvidersListResponse.newBuilder()
-                .addAllProviders(providerInfos)
-                .build();
-
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
-        logger.info(() -> "Returned " + providerInfos.size() + " providers");
-    }
-
-    @Override
-    public void getProviderCapabilities(ProviderRequest request, StreamObserver<ProviderCapabilitiesResponse> responseObserver) {
-        String clientId = request.getClientId();
-        logger.info(() -> "Fetching capabilities for provider " + request.getProvider() + " for client " + clientId);
-        if (!registeredClients.containsKey(clientId)) {
-            responseObserver.onError(new UnsupportedOperationException("Client Id" + clientId + " is not registered."));
-            return;
-        }
-
-        GenerativeProvider provider = GenerativeProviderFactory.getProvider(request.getProvider());
-
-        if (provider == null) {
-            responseObserver.onError(new IllegalArgumentException("Provider not found: " + request.getProvider()));
-            return;
-        }
-
-        // Build response using the provider's capabilities map
-        ProviderCapabilitiesResponse response = ProviderCapabilitiesResponse.newBuilder()
-                .setProviderName(provider.getProviderName())
-                .setServiceLevel(provider.getServiceLevel().name())
-                .putAllCapabilities(provider.getSupportedCapabilities())  // Using the map
-                .build();
-
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
-        logger.info(() -> "Returned capabilities for provider " + provider.getProviderName());
-    }
-
-    @Override
-    public void setPreferredProviders(ProviderSelectionRequest request, StreamObserver<SelectionResponse> responseObserver) {
-        String clientId = request.getClientId();
-        logger.info(() -> "Setting preferred providers for client " + clientId);
-
-        // Ensure the client is registered
-        if (!registeredClients.containsKey(clientId)) {
-            SelectionResponse response = SelectionResponse.newBuilder()
-                    .setSuccess(false)
-                    .setMessage("Client not registered with ID: " + clientId)
-                    .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
-            return;
-        }
-
-        // Get the existing provider map for the client or create a new one if not present
-        Map<String, GenerativeProvider> clientProviders = clientProviderMap.computeIfAbsent(clientId, k -> new ConcurrentHashMap<>());
-
-        // Iterate over the provider-capabilities map in the request
-        for (Map.Entry<String, ProviderCapabilitiesRequest> entry : request.getProviderCapabilitiesMap().entrySet()) {
-            String providerName = entry.getKey();
-            GenerativeProvider provider = GenerativeProviderFactory.getProvider(providerName);
-            logger.info(() -> "Assigning provider " + providerName + " to capabilities " + entry.getValue().getCapabilitiesList());
-
-            // Iterate over the list of capabilities the client wants this provider to handle
-            for (String capability : entry.getValue().getCapabilitiesList()) {
-                // Save the provider for the specific capability in the client's map
-                clientProviders.put(capability, provider);
-            }
-        }
-
-        // Save the updated provider map for the client back into clientProviderMap
-        clientProviderMap.put(clientId, clientProviders);
-
-        // Respond to the client
-        SelectionResponse response = SelectionResponse.newBuilder()
-                .setSuccess(true)
-                .setMessage("Preferred providers set successfully for client: " + clientId)
-                .build();
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
-        logger.info(() -> "Preferred providers set for client " + clientId);
-    }
-
-    @Override
-    public void getEmbedding(us.daconta.xlmeco.grpc.EmbeddingRequest request,
-                             io.grpc.stub.StreamObserver<us.daconta.xlmeco.grpc.EmbeddingResponse> responseObserver) {
-        String clientId = request.getClientId();
-        logger.info(() -> "Received embedding request from client " + clientId + " with text length " + request.getText().length());
-
-        // Check if client is registered
-        if (!isClientRegistered(clientId)) {
-            throw new IllegalArgumentException("Client not registered: " + clientId);
-        }
-
-        // Get the provider for the "embedding" capability
-        EmbeddingProvider provider = (EmbeddingProvider) getProviderForCapability(clientId, "embedding");
-        if (provider == null) {
-            throw new IllegalArgumentException("No provider selected for 'embedding' capability for client: " + clientId);
-        }
-
-        // Ensure the provider supports embeddings
-        if (!provider.supportsEmbeddings()) {
-            throw new UnsupportedOperationException("Selected provider does not support 'embedding' capability.");
-        }
-
-        // Process the embedding request
-        List<Float> embedding = provider.generateEmbedding(request.getText(), request.getModelParameters());
-        EmbeddingResponse response = EmbeddingResponse.newBuilder().addAllEmbedding(embedding).build();
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
-        logger.info(() -> "Returned embedding of size " + embedding.size() + " for client " + clientId);
-        return;
-    }
-
-    private boolean isClientRegistered(String clientId) {
-        return registeredClients.containsKey(clientId);
-    }
-
-    private GenerativeProvider getProviderForCapability(String clientId, String capability) {
-        Map<String, GenerativeProvider> clientProviders = clientProviderMap.get(clientId);
-
-        if (clientProviders == null || !clientProviders.containsKey(capability)) {
-            return null; // No provider selected for this capability
-        }
-
-        return clientProviders.get(capability);
-    }
 }
-

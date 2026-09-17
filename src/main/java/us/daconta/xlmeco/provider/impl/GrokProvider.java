@@ -1,6 +1,8 @@
 package us.daconta.xlmeco.provider.impl;
 
 import okhttp3.*;
+import us.daconta.xlmeco.provider.SafeProviderFailure;
+import us.daconta.xlmeco.grpc.StructuredImageErrorCode;
 import us.daconta.xlmeco.grpc.ChatRequest;
 import us.daconta.xlmeco.grpc.ChatResponsePart;
 import us.daconta.xlmeco.grpc.ModelParameters;
@@ -103,7 +105,7 @@ public class GrokProvider extends AbstractGenerativeProvider implements ChatProv
 
         try (Response response = httpClient.newCall(httpRequest).execute()) {
             if (!response.isSuccessful()) {
-                return "Error: " + response.body().string();
+                throw ProviderHttp.safeTextFailure(PROVIDER_NAME, ProviderHttp.httpFailure(response.code()));
             }
 
             String responseBody = response.body().string();
@@ -112,6 +114,9 @@ public class GrokProvider extends AbstractGenerativeProvider implements ChatProv
             String content = choices.getJSONObject(0).getJSONObject("message").getString("content");
 
             return content.trim();
+        } catch (SafeProviderFailure e) { throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new SafeProviderFailure(PROVIDER_NAME, StructuredImageErrorCode.PROVIDER_FAILURE, 0);
         }
     }
 
@@ -135,7 +140,8 @@ public class GrokProvider extends AbstractGenerativeProvider implements ChatProv
                 .addHeader("Authorization", "Bearer " + apiKey)
                 .build();
 
-        Response response = httpClient.newCall(httpRequest).execute();
+        try (Response response = httpClient.newCall(httpRequest).execute()) {
+        if (!response.isSuccessful()) throw ProviderHttp.safeTextFailure(PROVIDER_NAME, ProviderHttp.httpFailure(response.code()));
         BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream()));
         String line;
         while ((line = reader.readLine()) != null) {
@@ -157,6 +163,10 @@ public class GrokProvider extends AbstractGenerativeProvider implements ChatProv
             }
         }
         responseObserver.onCompleted();
+        } catch (SafeProviderFailure e) { throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new SafeProviderFailure(PROVIDER_NAME, StructuredImageErrorCode.PROVIDER_FAILURE, 0);
+        }
     }
    
 

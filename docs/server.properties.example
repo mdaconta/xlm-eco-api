@@ -1,0 +1,15 @@
+# External non-secret startup settings. Human provisions directories and secret files separately.
+server.bind=127.0.0.1
+server.port=50052
+admin.bind=127.0.0.1
+admin.port=50053
+feature.vectordb.enabled=false
+# Required for any non-loopback bind; optional for explicitly loopback listeners.
+# server.tls_certificate=C:/XLM/tls/server-chain.pem
+# server.tls_private_key=C:/XLM/tls/server-key.pem
+# admin.tls_certificate=C:/XLM/tls/server-chain.pem
+# admin.tls_private_key=C:/XLM/tls/server-key.pem
+# Optional non-secret model migration inputs, read only when registry.json is first created:
+# openai.default_lm_model=gpt-4o-mini
+# openai.default_embedding_model=text-embedding-ada-002
+# openai.vision_models=gpt-4o-mini

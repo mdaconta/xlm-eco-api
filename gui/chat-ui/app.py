@@ -1,4 +1,5 @@
 import sys
+import os
 import uuid
 import grpc
 import threading
@@ -6,13 +7,20 @@ import hmac
 import json
 import secrets
 import time
+import logging
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'python_client'))
+from admin_transport import channel as secure_channel, AdminClient
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from console_session import ConsoleSession
+from google.protobuf.json_format import MessageToDict
 import xlm_eco_api_pb2 as pb2
 import xlm_eco_api_pb2_grpc as pb2_grpc
 
-app = Flask(__name__, template_folder=str(Path(__file__).resolve().parent / 'templates'))
+app = Flask(__name__, template_folder=str(Path(__file__).resolve().parent / 'templates'),
+            static_folder=str(Path(__file__).resolve().parent / 'static'))
 app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024
 socketio = SocketIO(app, async_mode='threading')
 ui_token = secrets.token_urlsafe(32)
@@ -24,26 +32,37 @@ stub = None
 client_id = None
 provider = None
 model_name = None
+admin = None
+session = None
+app.config['UI_HOSTS'] = {'localhost', '127.0.0.1'}
 
 
 def configure_client(host, port, selected_provider, selected_model):
-    """Connect only at CLI startup; route tests inject a fake stub instead."""
-    global stub, client_id, provider, model_name
-    channel = grpc.insecure_channel(f"{host}:{port}")
-    candidate = pb2_grpc.XlmEcosystemServiceStub(channel)
-    new_client_id = str(uuid.uuid4())
-    registration = candidate.registerClient(pb2.ClientRegistrationRequest(
-        client_name="flask-client-1", client_id=new_client_id), timeout=10)
-    if not registration.success:
-        raise RuntimeError("Failed to register the UI client")
-    selection = candidate.setPreferredProviders(pb2.ProviderSelectionRequest(
-        client_id=new_client_id,
-        provider_capabilities={selected_provider: pb2.ProviderCapabilitiesRequest(capabilities=["chat"])}
-    ), timeout=10)
-    if not selection.success:
-        raise RuntimeError("Failed to select the text chat provider")
-    stub, client_id, provider, model_name = candidate, new_client_id, selected_provider, selected_model
+    """Start bounded recovery; an unavailable XLM does not prevent opening the Console."""
+    global stub, client_id, provider, model_name, session
+    channel = secure_channel(f"{host}:{port}", os.environ.get("XLM_INFERENCE_CA_FILE"))
+    stub = pb2_grpc.XlmEcosystemServiceStub(channel)
+    client_id = str(uuid.uuid4())
+    provider, model_name = selected_provider, selected_model
+    session = ConsoleSession(stub, client_id, provider, admin)
+    session.start()
     return channel
+
+
+@app.route('/console/status')
+def console_status():
+    if session is None:
+        return jsonify({'inference': {'state': 'unconfigured', 'code': ''},
+                        'administration': {'state': 'unconfigured', 'code': ''},
+                        'chat': {'state': 'unconfigured', 'code': ''}, 'generation': 0})
+    return jsonify(session.status())
+
+
+def inference_unavailable():
+    if session is not None and not session.check_inference():
+        return jsonify({'error': 'XLM connection is recovering; request was not submitted',
+                        'connection': session.status()['inference']}), 503
+    return None
 
 
 def valid_ui_token():
@@ -77,10 +96,10 @@ def generate_chat_title(chat_content):
         response = stub.syncChat(chat_request)
         return response.completion.strip()
     except grpc.RpcError as e:
-        print(f"Error generating title: {e.code()} - {e.details()}", flush=True)
+        print("Title request failed", flush=True)
         return "Untitled"
     except Exception as e:
-        print(f"Unexpected error while generating title: {e}", flush=True)
+        print("Title request failed", flush=True)
         return "Untitled"
 
 
@@ -92,7 +111,6 @@ def stream_responses(chat_request):
 
         # Stream each token and build the full response
         for response_part in response_stream:
-            print(f"Received token from gRPC: {response_part.token}", flush=True)
             chat_content.append(response_part.token)
             socketio.emit('chat_response', {'message': response_part.token})
             socketio.sleep(0)  # Allow WebSocket to send the message
@@ -103,9 +121,9 @@ def stream_responses(chat_request):
         socketio.emit('chat_title', {'title': title})
 
     except grpc.RpcError as e:
-        print(f"gRPC error: {e.code()} - {e.details()}", flush=True)
+        print("Chat request failed", flush=True)
     except Exception as e:
-        print(f"Unexpected error: {e}", flush=True)
+        print("Chat request failed", flush=True)
 
 
 @app.route('/')
@@ -123,8 +141,9 @@ def send_message():
         print("Error: Prompt cannot be empty", flush=True)
         return jsonify({"error": "Prompt cannot be empty"}), 400
 
-    print(f"Using client_id: {client_id}", flush=True)
-    print(f"Provider: {provider}, Model Name: {model_name}", flush=True)
+    unavailable = inference_unavailable()
+    if unavailable is not None:
+        return unavailable
 
     chat_request = pb2.ChatRequest(
         client_id=client_id,
@@ -163,10 +182,14 @@ def analyze_image():
     image_bytes = image.stream.read(MAX_IMAGE_BYTES + 1)
     if not image_bytes or len(image_bytes) > MAX_IMAGE_BYTES:
         return invalid_request('Image must be nonempty and no larger than 3 MiB')
+    unavailable = inference_unavailable()
+    if unavailable is not None:
+        return unavailable
     grpc_request = pb2.StructuredImageRequest(
         client_id=client_id, instructions=instructions,
         image=pb2.ImageInput(mime_type=image.mimetype, data=image_bytes),
-        provider=provider, model=model_name, json_schema=schema_text)
+        provider=request.form.get('provider', provider or ''),
+        model=request.form.get('model', model_name or ''), json_schema=schema_text)
     started = time.monotonic()
     try:
         result = stub.generateStructuredImage(grpc_request, timeout=90)
@@ -196,15 +219,86 @@ def analyze_image():
     })
 
 
+
+
+def trusted_request():
+    # Exact authority matching, including port; never trust forwarded headers.
+    return (request.host in app.config['UI_HOSTS'] and
+            (not request.headers.get('Origin') or
+             request.headers['Origin'] == 'http://' + request.host))
+
+
+@app.before_request
+def protect_console():
+    if not trusted_request():
+        return jsonify({'error': 'Untrusted UI origin or host'}), 403
+    if request.method not in ('GET', 'HEAD', 'OPTIONS') and not valid_ui_token():
+        return jsonify({'error': 'Invalid UI token'}), 403
+
+
+@socketio.on('connect')
+def socket_connect(auth=None):
+    return trusted_request() and isinstance(auth, dict) and hmac.compare_digest(str(auth.get('token', '')), ui_token)
+
+
+@app.route('/admin')
+def admin_page():
+    return render_template('admin.html', ui_token=ui_token)
+
+
+@app.route('/admin/api/<operation>', methods=['GET', 'POST'])
+def admin_api(operation):
+    if admin is None:
+        return jsonify({'error': 'Administration is not configured'}), 503
+    reads = {
+        'providers': ('listProviders', lambda d: pb2.AdminListProvidersRequest(capability=d.get('capability', ''))),
+        'provider': ('getProvider', lambda d: pb2.AdminProviderRequest(provider=d.get('provider', ''))),
+        'models': ('listModels', lambda d: pb2.AdminListModelsRequest(provider=d.get('provider', ''), capability=d.get('capability', ''))),
+        'defaults': ('getDefaults', lambda d: pb2.EmptyRequest()),
+        'status': ('getStatus', lambda d: pb2.EmptyRequest()),
+    }
+    writes = {
+        'provider': ('updateProvider', lambda d: pb2.AdminUpdateProviderRequest(**d)),
+        'model': ('upsertModel', lambda d: pb2.AdminUpsertModelRequest(**d)),
+        'default': ('setDefault', lambda d: pb2.AdminSetDefaultRequest(**d)),
+        'reload': ('reloadCredentials', lambda d: pb2.AdminRevision(**d)),
+    }
+    entry = (reads if request.method == 'GET' else writes).get(operation)
+    if entry is None:
+        return jsonify({'error': 'Unknown operation'}), 404
+    data = request.args.to_dict() if request.method == 'GET' else request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return invalid_request('Expected a JSON object')
+    try:
+        result = admin.call(entry[0], entry[1](data))
+        return jsonify(MessageToDict(result, preserving_proto_field_name=True,
+                                      always_print_fields_with_no_presence=True))
+    except (TypeError, ValueError):
+        return invalid_request('Malformed administrative update')
+    except grpc.RpcError as error:
+        code = error.code().name
+        return jsonify({'error': 'Administrative request failed', 'code': code}), (401 if code == 'UNAUTHENTICATED' else 409 if code == 'ABORTED' else 400)
+
+
 if __name__ == '__main__':
     if len(sys.argv) != 6:
         print("Usage: python app.py <grpc_host> <grpc_port> <flask_port> <provider> <model_name>", flush=True)
         sys.exit(1)
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     grpc_host, grpc_port, flask_port, selected_provider, selected_model = sys.argv[1:]
+    app.config['UI_HOSTS'] = {f'127.0.0.1:{flask_port}', f'localhost:{flask_port}'}
+    admin_channel = None
+    if os.environ.get('XLM_ADMIN_ENDPOINT'):
+        admin_channel = secure_channel(os.environ['XLM_ADMIN_ENDPOINT'], os.environ.get('XLM_ADMIN_CA_FILE'))
+        admin = AdminClient(pb2_grpc.XlmAdminServiceStub(admin_channel), os.environ.get('XLM_ADMIN_TOKEN_FILE'))
     grpc_channel = configure_client(grpc_host, grpc_port, selected_provider, selected_model)
     print(f"Starting Flask server on port {flask_port}", flush=True)
     try:
         socketio.run(app, host="127.0.0.1", port=int(flask_port), debug=False, allow_unsafe_werkzeug=True)
     finally:
+        if session:
+            session.close()
         grpc_channel.close()
+        if admin_channel:
+            admin_channel.close()
 

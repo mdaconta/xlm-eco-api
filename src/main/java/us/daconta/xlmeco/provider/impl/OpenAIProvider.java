@@ -1,6 +1,8 @@
 package us.daconta.xlmeco.provider.impl;
 
 import okhttp3.*;
+import us.daconta.xlmeco.provider.SafeProviderFailure;
+import us.daconta.xlmeco.grpc.StructuredImageErrorCode;
 import us.daconta.xlmeco.grpc.ChatRequest;
 import us.daconta.xlmeco.grpc.ChatResponsePart;
 import us.daconta.xlmeco.grpc.ModelParameters;
@@ -19,10 +21,8 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.time.Duration;
 import org.json.JSONException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,8 +39,8 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
     public static final String PROPERTY_DEFAULT_MODEL_LM = GenerativeProvider.PROPERTY_DEFAULT_MODEL_LM;
     public static final String PROPERTY_DEFAULT_MODEL_EMBEDDING = GenerativeProvider.PROPERTY_DEFAULT_MODEL_EMBEDDING;
 
-    private final OkHttpClient httpClient = new OkHttpClient();
-    private final OkHttpClient visionHttpClient = httpClient.newBuilder()
+    private final OkHttpClient httpClient = new OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build();
+    private OkHttpClient visionHttpClient = httpClient.newBuilder()
             .readTimeout(Duration.ofSeconds(120)).callTimeout(Duration.ofSeconds(150))
             .protocols(List.of(Protocol.HTTP_1_1)).build();
     private static final ObjectMapper JSON = new ObjectMapper()
@@ -50,7 +50,7 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
     private String embeddingURL;
     private String defaultLanguageModel;
     private String defaultEmbeddingModel;
-    private Set<String> visionModels = Set.of("gpt-4o-mini");
+
 
     // Configuration Properties read from property file
     private Properties configProperties;
@@ -67,8 +67,9 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
         embeddingURL = configProperties.getProperty(PROPERTY_URL_EMBEDDING);
         defaultLanguageModel = configProperties.getProperty(PROPERTY_DEFAULT_MODEL_LM);
         defaultEmbeddingModel = configProperties.getProperty(PROPERTY_DEFAULT_MODEL_EMBEDDING);
-        visionModels = Arrays.stream(configProperties.getProperty("vision_models", "gpt-4o-mini").split(","))
-                .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toUnmodifiableSet());
+        int seconds = Integer.parseInt(configProperties.getProperty("timeout_seconds", "150"));
+        visionHttpClient = httpClient.newBuilder().readTimeout(Duration.ofSeconds(seconds))
+                .callTimeout(Duration.ofSeconds(seconds)).protocols(List.of(Protocol.HTTP_1_1)).build();
     }
 
     @Override
@@ -102,7 +103,7 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
 
     @Override
     public boolean supportsStructuredImageModel(String model) {
-        return visionModels.contains(model);
+        return model != null && !model.isBlank();
     }
 
     @Override
@@ -149,8 +150,7 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
                 else code = StructuredImageErrorCode.PROVIDER_FAILURE;
                 String safeMessage = code == StructuredImageErrorCode.PROVIDER_QUOTA
                         ? "Provider quota or spend limit reached" : "Provider returned HTTP " + status;
-                if (providerCode.matches("[a-z][a-z0-9_]{0,63}"))
-                    safeMessage += " (provider code: " + providerCode + ")";
+
                 throw new StructuredImageProvider.Failure(code, safeMessage, retryable, status);
             }
             if (response.body() == null) throw malformed("Provider returned an empty response");
@@ -227,7 +227,7 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
 
         try (Response response = httpClient.newCall(httpRequest).execute()) {
             if (!response.isSuccessful()) {
-                return "Error: " + response.body().string();
+                throw ProviderHttp.safeTextFailure(PROVIDER_NAME, ProviderHttp.httpFailure(response.code()));
             }
 
             String responseBody = response.body().string();
@@ -236,6 +236,9 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
             String content = choices.getJSONObject(0).getJSONObject("message").getString("content");
 
             return content.trim();
+        } catch (SafeProviderFailure e) { throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new SafeProviderFailure(PROVIDER_NAME, StructuredImageErrorCode.PROVIDER_FAILURE, 0);
         }
     }
 
@@ -259,35 +262,34 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
                 .addHeader("Authorization", "Bearer " + apiKey)
                 .build();
 
-        Response response = httpClient.newCall(httpRequest).execute();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream()));
-        String line;
-        while ((line = reader.readLine()) != null) {
-            if (line.startsWith("data: ")) {
-                String jsonData = line.substring(6);
-                if ("[DONE]".equals(jsonData.trim())) {
-                    break;
-                }
-
-                JSONObject jsonResponse = new JSONObject(jsonData);
-                JSONArray choices = jsonResponse.getJSONArray("choices");
-                JSONObject delta = choices.getJSONObject(0).getJSONObject("delta");
-
-                if (delta.has("content")) {
-                    String token = delta.getString("content");
-                    ChatResponsePart responsePart = ChatResponsePart.newBuilder().setToken(token).build();
-                    responseObserver.onNext(responsePart);
+        try (Response response = httpClient.newCall(httpRequest).execute()) {
+            if (!response.isSuccessful()) throw ProviderHttp.safeTextFailure(PROVIDER_NAME, ProviderHttp.httpFailure(response.code()));
+            if (response.body() == null) throw new SafeProviderFailure(PROVIDER_NAME, StructuredImageErrorCode.MALFORMED_PROVIDER_RESPONSE, 0);
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.startsWith("data: ")) {
+                        String jsonData = line.substring(6);
+                        if ("[DONE]".equals(jsonData.trim())) break;
+                        JSONObject delta = new JSONObject(jsonData).getJSONArray("choices")
+                                .getJSONObject(0).getJSONObject("delta");
+                        if (delta.has("content")) responseObserver.onNext(ChatResponsePart.newBuilder()
+                                .setToken(delta.getString("content")).build());
+                    }
                 }
             }
+            responseObserver.onCompleted();
+        } catch (SafeProviderFailure e) { throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new SafeProviderFailure(PROVIDER_NAME, StructuredImageErrorCode.PROVIDER_FAILURE, 0);
         }
-        responseObserver.onCompleted();
     }
 
     @Override
     public List<Float> generateEmbedding(String text, ModelParameters params) {
         // Create the JSON body for the request
         JSONObject jsonBody = new JSONObject();
-        jsonBody.put("model", defaultEmbeddingModel);
+        jsonBody.put("model", params.getParametersOrDefault("model", defaultEmbeddingModel));
         jsonBody.put("input", text);
 
         // Build the HTTP request
@@ -300,7 +302,7 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
         // Send the request and parse the response
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
-                throw new IOException("Unexpected code: " + response);
+                throw ProviderHttp.safeTextFailure(PROVIDER_NAME, ProviderHttp.httpFailure(response.code()));
             }
 
             // Parse the response to extract the embedding
@@ -313,8 +315,9 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
                 embedding.add(embeddingArray.getFloat(i));
             }
             return embedding;
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to get embedding from OpenAI: " + e.getMessage(), e);
+        } catch (SafeProviderFailure e) { throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new SafeProviderFailure(PROVIDER_NAME, StructuredImageErrorCode.PROVIDER_FAILURE, 0);
         }
     }
 

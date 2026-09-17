@@ -63,3 +63,7 @@ jspm_packages/
 # ignore properties with possible keys exposed
 src/main/resources/config.properties
 
+
+# Keep the Node source compatibility regression; node/ otherwise ignores this directory.
+!src/test/node/
+!src/test/node/*.js

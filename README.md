@@ -119,11 +119,7 @@ To build this software you will first have to insure you have the following pre-
 5. Maven. The project has a pom file. The two key POM lifecycle commands are Compile and Package.
    The package command creates a runnable Jar file that you can use to run both the client and the server.
 6. Get Accounts and API keys with all the major LLM/SLM providers.
-7. Set up the configuration file (copy src/main/resources/config.properties.template to config.properties).
-   Then add the following.
-    1. OPENAI_API_KEY
-    2. GEMINI_PROJECT_ID (working on getting the gemini api key working. Will have the provider updated soon).
-   **NOTE**: NEVER push up the config.properties file with any api keys (the .gitignore file should prevent that).
+7. Provision external non-secret configuration and secret directories following [XLM administration](docs/dynamic-administration.md). The server requires `XLM_CONFIG_DIR` and `XLM_SECRETS_DIR`; it no longer loads credentials from classpath resources. Never put keys or Admin tokens in source control or prompts.
 
 ## Usage
 
@@ -131,11 +127,7 @@ To run the gRPC server you type:
 ```bash
 java -jar ./target/xlm-eco-api-1.0-SNAPSHOT.jar
 ```
-Note: under src/main/resources there is a config.properties file that currently has the port to run the server on.  The clients will now also accept a host/port instead of having those values hardcoded.
-The format of the config.properties file is currently only one property:
-```
-server.port=50052
-```
+Set the external directory environment variables before launching. Loopback listeners default to inference port 50052 and authenticated Admin port 50053. All non-loopback listeners require TLS. See the [configuration and migration guide](docs/dynamic-administration.md).
 
 To run the java test gRPC client you type:
 ```bash
@@ -158,7 +150,7 @@ Note: there will be a client created for every language supported by gRPC (Pytho
 
 ## Structured image analysis (Increment 3A)
 
-`generateStructuredImage` is an additive unary gRPC method. Register a client, then send a `StructuredImageRequest` with nonempty instructions, one `ImageInput`, explicit `provider` and `model`, and a JSON Schema object serialized in `json_schema`. Inline image bytes are limited to 3 MiB and must match `image/png`, `image/jpeg`, or `image/webp`; instructions and schema are limited to 64 KiB each. The configured `openai` adapter supports only models listed in `openai.vision_models` (default `gpt-4o-mini`). The method does not use preferred-provider routing or fallback.
+`generateStructuredImage` is an additive unary gRPC method. Register a client, then send a `StructuredImageRequest` with nonempty instructions, one `ImageInput`, explicit `provider` and `model`, and a JSON Schema object serialized in `json_schema`. Inline image bytes are limited to 3 MiB and must match `image/png`, `image/jpeg`, or `image/webp`; instructions and schema are limited to 64 KiB each. The authoritative mutable registry controls enabled models and capabilities. OpenAI, Google and Anthropic structured-image adapters are implemented; remote acceptance is tracked separately. Explicit IDs override the configured `structured_image` default; omitting both uses that default. No fallback is performed. See [Admin Console, API and harness usage](docs/dynamic-administration.md) and [verification status](docs/dynamic-administration-verification.md).
 
 On success, `StructuredImageResponse` contains a JSON-object `json_payload`, provider/model identity, `success=true`, and `STRUCTURED_IMAGE_COMPLETED`. On failure it contains `STRUCTURED_IMAGE_FAILED` and a normalized error code, safe message, retryability flag and provider HTTP status where available. Provider quota/spend failures are nonretryable; transient rate limits are retryable. The adapter relies on the provider's strict JSON Schema mode for schema conformance and checks that returned content is a JSON object. Existing `syncChat` and `asyncChat` contracts remain available.
 

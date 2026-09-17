@@ -8,6 +8,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import java.time.Duration;
 import okhttp3.MediaType;
+import us.daconta.xlmeco.provider.SafeProviderFailure;
+import us.daconta.xlmeco.grpc.StructuredImageErrorCode;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -65,8 +67,7 @@ public class OllamaProvider extends AbstractGenerativeProvider implements ChatPr
 
         try (Response response = httpClient.newCall(httpRequest).execute()) {
             if (!response.isSuccessful()) {
-                String errorBody = response.body() != null ? response.body().string() : "Unknown error";
-                return "Error: " + errorBody;
+                throw ProviderHttp.safeTextFailure(PROVIDER_NAME, ProviderHttp.httpFailure(response.code()));
             }
 
             String responseBody = response.body() != null ? response.body().string() : "";
@@ -80,6 +81,9 @@ public class OllamaProvider extends AbstractGenerativeProvider implements ChatPr
                 return message.optString("content", "").trim();
             }
             return jsonResponse.optString("response", "").trim();
+        } catch (SafeProviderFailure e) { throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new SafeProviderFailure(PROVIDER_NAME, StructuredImageErrorCode.PROVIDER_FAILURE, 0);
         }
     }
 
@@ -93,9 +97,7 @@ public class OllamaProvider extends AbstractGenerativeProvider implements ChatPr
 
         try (Response response = httpClient.newCall(httpRequest).execute()) {
             if (!response.isSuccessful()) {
-                String errorBody = response.body() != null ? response.body().string() : "Unknown error";
-                responseObserver.onError(new IOException("Error: " + errorBody));
-                return;
+                throw ProviderHttp.safeTextFailure(PROVIDER_NAME, ProviderHttp.httpFailure(response.code()));
             }
 
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8))) {
@@ -129,6 +131,9 @@ public class OllamaProvider extends AbstractGenerativeProvider implements ChatPr
                 }
             }
             responseObserver.onCompleted();
+        } catch (SafeProviderFailure e) { throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new SafeProviderFailure(PROVIDER_NAME, StructuredImageErrorCode.PROVIDER_FAILURE, 0);
         }
     }
 
