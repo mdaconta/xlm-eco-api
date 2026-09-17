@@ -18,7 +18,7 @@ This project offers **three key benefits**:
 ## Introduction
 
 Here is the LLM Ecosystem diagram from my article entitled [What is the LLM Ecosystem?](https://www.daconta.us/Articles/The-LLM-Ecosystem.html).
-![The LLM Ecosystem](https://www.daconta.us/Articles/LLM-Ecosystem-Components.jpg)
+![The LLM Ecosystem](https://www.daconta.us/images/LLM-Ecosystem-Components.jpg)
 
 ## Architecture
 
