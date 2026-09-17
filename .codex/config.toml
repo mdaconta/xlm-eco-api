@@ -1,0 +1,10 @@
+# XLM Eco API — Codex project configuration
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Follow the repository AGENTS.md.
+
+Never run git push.
+"""
