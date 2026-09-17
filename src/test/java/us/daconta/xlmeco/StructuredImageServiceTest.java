@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import us.daconta.xlmeco.grpc.*;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -30,6 +31,7 @@ class StructuredImageServiceTest {
             "{\"model\":\"test-vision-revision\",\"choices\":[{\"finish_reason\":\"stop\","
                     + "\"message\":{\"content\":\"{\\\"color\\\":\\\"blue\\\"}\"}}]}");
     private volatile int httpStatus = 200;
+    private volatile long httpDelayMillis;
     private HttpServer http;
     private Server grpc;
     private ManagedChannel channel;
@@ -40,6 +42,14 @@ class StructuredImageServiceTest {
         http = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         http.createContext("/chat", exchange -> {
             body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            if (httpDelayMillis > 0) {
+                try {
+                    Thread.sleep(httpDelayMillis);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while preparing response", e);
+                }
+            }
             byte[] bytes = reply.get().getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(httpStatus, bytes.length);
             try (var out = exchange.getResponseBody()) { out.write(bytes); }
@@ -126,6 +136,23 @@ class StructuredImageServiceTest {
         assertEquals(StructuredImageErrorCode.PROVIDER_QUOTA, quota.getError().getCode());
         assertFalse(quota.getError().getRetryable());
         assertFalse(quota.toString().contains("private billing details"));
+        reply.set("{\"error\":{\"type\":\"insufficient_quota\",\"message\":\"private billing details\"}}");
+        StructuredImageResponse typedQuota = stub.generateStructuredImage(request());
+        assertEquals(StructuredImageErrorCode.PROVIDER_QUOTA, typedQuota.getError().getCode());
+        assertFalse(typedQuota.getError().getRetryable());
+        assertTrue(typedQuota.getError().getMessage().contains("provider code: insufficient_quota"));
+        httpStatus = 403;
+        reply.set("{\"error\":{\"code\":\"model_access_denied\",\"message\":\"secret provider diagnostic\"}}");
+        StructuredImageResponse forbidden = stub.generateStructuredImage(request());
+        assertEquals(StructuredImageErrorCode.PROVIDER_AUTHENTICATION, forbidden.getError().getCode());
+        assertEquals("Provider returned HTTP 403 (provider code: model_access_denied)", forbidden.getError().getMessage());
+        assertFalse(forbidden.toString().contains("secret provider diagnostic"));
+        reply.set("{\"error\":{\"code\":\"Bearer_secret-token\",\"message\":\"private details\"}}");
+        assertEquals("Provider returned HTTP 403", stub.generateStructuredImage(request()).getError().getMessage());
+        reply.set("{\"error\":{\"code\":\"" + "x".repeat(65) + "\",\"message\":\"private details\"}}");
+        assertEquals("Provider returned HTTP 403", stub.generateStructuredImage(request()).getError().getMessage());
+        reply.set("not json");
+        assertEquals("Provider returned HTTP 403", stub.generateStructuredImage(request()).getError().getMessage());
         httpStatus = 401;
         assertEquals(StructuredImageErrorCode.PROVIDER_AUTHENTICATION,
                 stub.generateStructuredImage(request()).getError().getCode());
@@ -149,6 +176,13 @@ class StructuredImageServiceTest {
         reply.set("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"{\\\"color\\\":\\\"blue\\\"} trailing\"}}]}");
         assertEquals(StructuredImageErrorCode.INVALID_STRUCTURED_OUTPUT,
                 stub.generateStructuredImage(request()).getError().getCode());
+    }
+
+    @Test
+    void allowsStructuredImageResponsePastDefaultTenSecondReadTimeout() {
+        httpDelayMillis = 11_000;
+        StructuredImageResponse result = stub.generateStructuredImage(request());
+        assertTrue(result.getSuccess(), result.toString());
     }
 
     @Test

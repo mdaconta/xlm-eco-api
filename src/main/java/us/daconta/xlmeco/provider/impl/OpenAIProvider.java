@@ -40,7 +40,9 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
     public static final String PROPERTY_DEFAULT_MODEL_EMBEDDING = GenerativeProvider.PROPERTY_DEFAULT_MODEL_EMBEDDING;
 
     private final OkHttpClient httpClient = new OkHttpClient();
-    private final OkHttpClient visionHttpClient = httpClient.newBuilder().callTimeout(Duration.ofSeconds(60)).build();
+    private final OkHttpClient visionHttpClient = httpClient.newBuilder()
+            .readTimeout(Duration.ofSeconds(120)).callTimeout(Duration.ofSeconds(150))
+            .protocols(List.of(Protocol.HTTP_1_1)).build();
     private static final ObjectMapper JSON = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private String apiKey;
@@ -125,14 +127,14 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
             if (!response.isSuccessful()) {
                 StructuredImageErrorCode code;
                 boolean retryable = false;
+                String providerCode = "";
+                try {
+                    JSONObject detail = new JSONObject(response.peekBody(16_384).string()).getJSONObject("error");
+                    providerCode = detail.optString("code", "");
+                    if (providerCode.isEmpty()) providerCode = detail.optString("type", "");
+                } catch (JSONException | IOException ignored) { /* Keep safe HTTP classification. */ }
                 if (status == 401 || status == 403) code = StructuredImageErrorCode.PROVIDER_AUTHENTICATION;
                 else if (status == 429) {
-                    String providerCode = "";
-                    try {
-                        JSONObject detail = new JSONObject(response.peekBody(16_384).string()).getJSONObject("error");
-                        providerCode = detail.optString("code", detail.optString("type", ""));
-                        if (providerCode.isEmpty()) providerCode = detail.optString("type", "");
-                    } catch (JSONException ignored) { /* Keep safe HTTP classification. */ }
                     if (Set.of("insufficient_quota", "credit_balance_exhausted",
                             "organization_usage_limit_exceeded", "organization_spend_limit_exceeded",
                             "project_spend_limit_exceeded").contains(providerCode)) {
@@ -147,6 +149,8 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
                 else code = StructuredImageErrorCode.PROVIDER_FAILURE;
                 String safeMessage = code == StructuredImageErrorCode.PROVIDER_QUOTA
                         ? "Provider quota or spend limit reached" : "Provider returned HTTP " + status;
+                if (providerCode.matches("[a-z][a-z0-9_]{0,63}"))
+                    safeMessage += " (provider code: " + providerCode + ")";
                 throw new StructuredImageProvider.Failure(code, safeMessage, retryable, status);
             }
             if (response.body() == null) throw malformed("Provider returned an empty response");
