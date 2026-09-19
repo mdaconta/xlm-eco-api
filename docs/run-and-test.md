@@ -31,9 +31,10 @@ python scripts/check_python_coverage.py
 ./node/node.exe gui/chat-ui/test_chat_ui.cjs
 ./node/node.exe src/test/node/client_compatibility.js
 powershell.exe -NoProfile -File scripts/tests/local-server.test.ps1
+powershell.exe -NoProfile -File scripts/tests/local-server-lifecycle.test.ps1
 ```
 
-Stop on a failing command and retain its output. Successful Maven verification prints `BUILD SUCCESS`, creates `target/xlm-eco-api-1.0-SNAPSHOT.jar`, generates Java/Python protobuf classes, runs JUnit and loopback integration tests, and enforces aggregate Java line/branch coverage independently at 90%. The Python runner discovers both GUI and client suites and independently enforces statement/branch coverage at 90%. Node commands verify Admin/Chat controller behavior and runtime protobuf compatibility. Launcher tests use fake Java processes and synthetic configuration, not the real server.
+Stop on a failing command and retain its output. Successful Maven verification prints `BUILD SUCCESS`, creates `target/xlm-eco-api-1.0-SNAPSHOT.jar`, generates Java/Python protobuf classes, runs JUnit and loopback integration tests, and enforces aggregate Java line/branch coverage independently at 90%. The Python runner discovers both GUI and client suites and independently enforces statement/branch coverage at 90%. Node commands verify Admin/Chat controller behavior and runtime protobuf compatibility. Basic launcher tests use fake Java commands; the lifecycle suite compiles a fixture JAR and exercises real Java processes, ownership and Windows file locking. Both use synthetic configuration without provider credentials. These PowerShell suites are explicit checks, not Maven tests.
 
 | Evidence | Location |
 |---|---|
@@ -76,6 +77,15 @@ powershell.exe -NoProfile -File scripts/local-server.ps1 -Action Run
 ```
 
 `Check` should report **startup prerequisites found**. This checks paths, Java, JAR, `server.properties` and `admin.token`, without reading secret contents. `Run` starts the foreground Java server with the Windows trusted-root store; inspect server startup output for actual listener readiness. Default loopback ports are inference **50052** and Admin **50053**. Ctrl+C stops this foreground server. Do not start a second process on the same registry/ports.
+
+`Run` is intentionally persistent and belongs to the operator of that terminal. Stop it before `mvn clean verify`; ending an agent task does not stop a tool session that is still waiting on Java. For automation that starts an API only to verify it, use the owned bracket instead (Git Bash):
+
+```bash
+powershell.exe -NoProfile -File scripts/local-server.ps1 -Action Verify \
+  -VerificationScript "$(cygpath -m "$PWD/scripts/tests/verify-packaged-server.ps1")"
+```
+
+This callback verifies the owned process's default loopback listeners without provider calls. The bracket terminates that exact owned API process tree on success/failure and confirms API exit before returning. It also uses Windows job ownership to prevent the API surviving abrupt verifier termination. It creates no persistent PID file. A custom callback must bound its work and clean up its own tools. Persistent servers and separately launched Chat clients are not selected for cleanup by name or port. See [lifecycle semantics](local-server.md#verification-ownership) and [the preserved incident and regression evidence](launcher-lifecycle-verification.md).
 
 If first-time configuration is missing, provision only the missing prerequisites using [administration and external secret requirements](dynamic-administration.md) and [server.properties.example](server.properties.example). The launcher never recreates credentials, resets the registry, or changes defaults. Arbitrary provider endpoints cannot be edited through Admin. For non-Windows launch or remote TLS configuration, follow the administration guide rather than the Windows trust-store wrapper.
 

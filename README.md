@@ -140,6 +140,8 @@ powershell.exe -NoProfile -File scripts/local-server.ps1 -Action Run
 
 It does not recreate credentials, reset the catalog, or stop unrelated processes. First-time provisioning remains operator-owned and is described in the helper guide.
 
+`Run` stays alive until its operator stops it. Automation that starts a server for verification must use the [owned Verify bracket](docs/local-server.md#verification-ownership), which confirms cleanup before returning. Stop persistent servers before `mvn clean verify` so Windows can release the packaged JAR.
+
 To run the java test gRPC client you type:
 ```bash
 java -cp ./target/xlm-eco-api-1.0-SNAPSHOT.jar us.daconta.xlmeco.GrpcXlmClient 127.0.0.1 50052 openai "gpt-4o-mini" "Who is FDR?"

@@ -1,9 +1,10 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Check', 'Run')][string]$Action = 'Check',
+    [ValidateSet('Check', 'Run', 'Verify')][string]$Action = 'Check',
     [string]$ConfigDir,
     [string]$SecretsDir,
-    [string]$JarPath
+    [string]$JarPath,
+    [string]$VerificationScript
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,6 +59,11 @@ if (-not $PSBoundParameters.ContainsKey('SecretsDir')) {
 }
 if (-not $PSBoundParameters.ContainsKey('JarPath')) { $JarPath = Join-Path $projectDir 'target\xlm-eco-api-1.0-SNAPSHOT.jar' }
 
+if ($Action -eq 'Verify') {
+    $VerificationScript = Require-Path $VerificationScript 'Verification script' 'Leaf'
+    if ([IO.Path]::GetExtension($VerificationScript) -ne '.ps1') { throw 'Verification script must be a PowerShell .ps1 file.' }
+} elseif ($PSBoundParameters.ContainsKey('VerificationScript')) { throw 'VerificationScript requires -Action Verify.' }
+
 $config = Require-ExternalDirectory $ConfigDir 'XLM config directory'
 $secrets = Require-ExternalDirectory $SecretsDir 'XLM secrets directory'
 $jar = Require-Path $JarPath 'XLM JAR' 'Leaf'
@@ -74,10 +80,41 @@ $oldSecrets = [Environment]::GetEnvironmentVariable('XLM_SECRETS_DIR', 'Process'
 try {
     [Environment]::SetEnvironmentVariable('XLM_CONFIG_DIR', $config, 'Process')
     [Environment]::SetEnvironmentVariable('XLM_SECRETS_DIR', $secrets, 'Process')
-    # Each array argument remains separate, including a JAR path containing spaces.
-    # Foreground Java retains normal certificate and hostname validation.
-    & $java '-Djavax.net.ssl.trustStoreType=Windows-ROOT' '-Djavax.net.ssl.trustStore=NONE' '-jar' $jar
-    $serverExitCode = $LASTEXITCODE
+    $javaArguments = @('-Djavax.net.ssl.trustStoreType=Windows-ROOT', '-Djavax.net.ssl.trustStore=NONE', '-jar', $jar)
+    if ($Action -eq 'Run') {
+        # The persistent developer foreground contract remains unchanged.
+        & $java @javaArguments
+        $serverExitCode = $LASTEXITCODE
+    } else {
+        if (-not ('Xlm.Launcher.OwnedServerProcess' -as [type])) {
+            Add-Type -Path (Join-Path $PSScriptRoot 'OwnedServerProcess.cs')
+        }
+        $ownedServer = $null
+        $verificationFailure = $null
+        $cleanupFailure = $null
+        try {
+            $ownedServer = [Xlm.Launcher.OwnedServerProcess]::Start($java, $javaArguments, $projectDir)
+            Write-Output "Verification owns XLM server PID $($ownedServer.View.Id), created $($ownedServer.View.StartTimeUtc.ToString('o'))."
+            $global:LASTEXITCODE = 0
+            & $VerificationScript -ServerProcess $ownedServer.View
+            if ($global:LASTEXITCODE -ne 0) { throw "Verification returned native exit code $global:LASTEXITCODE." }
+        } catch {
+            $verificationFailure = $_
+        } finally {
+            if ($null -ne $ownedServer) {
+                try { $ownedServer.Dispose() } catch { $cleanupFailure = $_ }
+            }
+        }
+        if ($null -ne $cleanupFailure) {
+            if ($null -ne $verificationFailure) {
+                throw [AggregateException]::new('Verification and owned-server cleanup both failed.', @($verificationFailure.Exception, $cleanupFailure.Exception))
+            }
+            throw $cleanupFailure
+        }
+        if ($null -ne $verificationFailure) { throw $verificationFailure }
+        Write-Output 'Verification finished; owned XLM server exit confirmed.'
+        $serverExitCode = 0
+    }
 } finally {
     if ($hadConfig) { [Environment]::SetEnvironmentVariable('XLM_CONFIG_DIR', $oldConfig, 'Process') } else { Remove-Item Env:XLM_CONFIG_DIR -ErrorAction SilentlyContinue }
     if ($hadSecrets) { [Environment]::SetEnvironmentVariable('XLM_SECRETS_DIR', $oldSecrets, 'Process') } else { Remove-Item Env:XLM_SECRETS_DIR -ErrorAction SilentlyContinue }
