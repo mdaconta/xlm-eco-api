@@ -1,5 +1,7 @@
 # Increment 3A: bounded multimodal design
 
+Historical scope: this document records the original structured-image increment. Current provider/model authority is the [dynamic registry](dynamic-administration.md); [image generation](image-generation-design.md) adds a separate explicit pixel-output RPC and capability without changing this JSON-output wire contract. Original OpenAI-only allowlist statements below describe that initial increment, not the current multi-provider registry.
+
 Status: proposed for Mentor Design Gate, 2026-09-16. Source requirements: Video Inventory's Increment 3A sections in its Implementation Plan and XLM Upgrade Plan. XLM remains domain-neutral.
 
 ## Contract and compatibility

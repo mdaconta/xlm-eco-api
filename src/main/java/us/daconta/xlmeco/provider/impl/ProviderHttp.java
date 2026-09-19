@@ -15,12 +15,22 @@ final class ProviderHttp {
     private static final ObjectMapper JSON = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private final OkHttpClient client;
     ProviderHttp(Properties properties) {
+        this(properties, false);
+    }
+    ProviderHttp(Properties properties, boolean http1Only) {
         int seconds = Integer.parseInt(properties.getProperty("timeout_seconds", "150"));
-        client = new OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+        OkHttpClient.Builder builder = new OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
                 .retryOnConnectionFailure(false).callTimeout(Duration.ofSeconds(seconds))
-                .readTimeout(Duration.ofSeconds(seconds)).build();
+                .readTimeout(Duration.ofSeconds(seconds));
+        if (http1Only) builder.protocols(java.util.List.of(Protocol.HTTP_1_1));
+        client = builder.build();
     }
     JSONObject post(String url, String header, String credential, JSONObject payload, boolean anthropic)
+            throws StructuredImageProvider.Failure {
+        return post(url, header, credential, payload, anthropic, 1_048_576);
+    }
+    static final int IMAGE_ENVELOPE_BYTES = 4 * 1024 * 1024 + 65_536;
+    JSONObject post(String url, String header, String credential, JSONObject payload, boolean anthropic, int maxBytes)
             throws StructuredImageProvider.Failure {
         try {
             Request.Builder builder = new Request.Builder().url(url)
@@ -29,10 +39,10 @@ final class ProviderHttp {
             if (anthropic) builder.header("anthropic-version", "2023-06-01");
             try (Response response = client.newCall(builder.build()).execute()) {
                 int status = response.code();
-                if (!response.isSuccessful()) throw httpFailure(status);
+                if (!response.isSuccessful()) throw responseFailure(response);
                 if (response.body() == null) throw malformed();
-                byte[] bytes = response.peekBody(1_048_577).bytes();
-                if (bytes.length > 1_048_576) throw malformed();
+                byte[] bytes = response.peekBody((long) maxBytes + 1).bytes();
+                if (bytes.length > maxBytes) throw malformed();
                 var parsed = JSON.readTree(bytes);
                 if (parsed == null || !parsed.isObject()) throw malformed();
                 return new JSONObject(JSON.writeValueAsString(parsed));
@@ -44,6 +54,20 @@ final class ProviderHttp {
         } catch (IOException e) {
             throw new StructuredImageProvider.Failure(StructuredImageErrorCode.PROVIDER_UNAVAILABLE, "Provider connection failed", true, 0);
         }
+    }
+    private static StructuredImageProvider.Failure responseFailure(Response response) {
+        if (response.code() == 429) {
+            try {
+                JSONObject error = new JSONObject(response.peekBody(16_384).string()).getJSONObject("error");
+                String code = error.optString("code", "");
+                if (code.isEmpty()) code = error.optString("type", "");
+                if (java.util.Set.of("insufficient_quota", "credit_balance_exhausted", "organization_usage_limit_exceeded",
+                        "organization_spend_limit_exceeded", "project_spend_limit_exceeded").contains(code))
+                    return new StructuredImageProvider.Failure(StructuredImageErrorCode.PROVIDER_QUOTA,
+                            "Provider quota or spend limit reached", false, 429);
+            } catch (IOException | org.json.JSONException ignored) { /* Safe status fallback. */ }
+        }
+        return httpFailure(response.code());
     }
     static StructuredImageProvider.Failure httpFailure(int status) {
         StructuredImageErrorCode code = switch (status) {

@@ -1,5 +1,7 @@
 # Dynamic provider/model administration: bounded design proposal
 
+Current extension: [image-generation design](image-generation-design.md) adds independent `image_generation` metadata/defaults and registered read-only inference model discovery. Admin remains the only mutation boundary. Original implementation history below retains its original three-capability scope; current capabilities and upgrade instructions are in [administration usage](dynamic-administration.md#image-generation-extension).
+
 Date: 2026-09-16. Status: implemented after targeted Design Gate PASS WITH FINDINGS; final Mentor Quality Gate PASS. Operational evidence limitations are recorded separately. Companion: [gap analysis](dynamic-administration-gap-analysis.md). No production changes are authorized by this document alone; Mentor Design Gate must pass.
 
 ## Scope and proposed security decision

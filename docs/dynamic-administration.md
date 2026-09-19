@@ -2,7 +2,19 @@
 
 This increment provides a persistent provider/model catalog, explicit capability defaults, authenticated gRPC administration, and a local Flask Admin Console. Inference never automatically switches providers/models or retries another model on failure.
 
+## Image-generation extension
+
+The catalog includes `image_generation` independently of `chat` (text), `structured_image` (image input with JSON output), and `embedding`. OpenAI and Google implement generation; Anthropic, Grok and Ollama do not advertise it. Provider support describes implemented adapters; a model's explicit capability set determines allowed operations. Neither catalog membership nor provider documentation establishes remote verification.
+
+Fresh registries seed `openai/gpt-image-1` and `google/gemini-2.5-flash-image` with generation only. Existing registries retain administrator state and receive no automatic model/default changes. To add one, select its provider in Models, create a draft with that exact ID and `image_generation`, then save. Optionally select `image_generation` in Defaults and save the desired pair. Read back the saved configuration before restart. Do not add generation to vision-only models on the assumption that image input implies output.
+
+Registered inference clients use read-only `listModels` to discover configured capabilities without an Admin token. Authenticated Admin mutations remain authoritative and revision guarded. Unsupported provider capability assignments are rejected; model availability is operator configured, not remotely discovered.
+
+`generateImage` accepts an explicit pair or the generation default. Provider-only selection requires the same provider's global default; model-only selection is invalid. No fallback or legacy preference routing applies. Google generation needs its external API key even when text/embedding ADC is configured. `timeout_seconds` also bounds generation; `output_tokens` remains a structured-response setting. One validated inline PNG/JPEG is limited to 3 MiB; HTTP envelopes to 4 MiB + 64 KiB. See [design](image-generation-design.md), [API example](../README.md#image-generation), and [verification](image-generation-verification.md).
+
 ## Configuration authority and migration
+
+The [Windows local-server helper](local-server.md) checks/reuses the existing user `.xlm` directories and starts XLM without prompting for keys or overwriting configuration.
 
 The server requires two absolute directories outside source control: `XLM_CONFIG_DIR` and `XLM_SECRETS_DIR`. The Human Architect creates and protects them. The server does not generate real credentials, read keys from prompts, or migrate secrets from the old classpath configuration. `config.properties` is excluded from both ordinary and shaded JARs, including stale resource output.
 
@@ -73,7 +85,7 @@ Open `http://127.0.0.1:5000/admin`. Providers exposes enabled state, capabilitie
 
 ## Real-provider harness and restart
 
-Use [dynamic-administration-matrix.json](dynamic-administration-matrix.json) for the nine documented candidate inputs. The harness also supports pure registry discovery when `--matrix` is omitted. It never makes direct provider calls or has a hard-coded provider catalog.
+Use [dynamic-administration-matrix.json](dynamic-administration-matrix.json) for the nine documented candidate inputs. When `--matrix` is omitted, the harness discovers eligible models from the registry and then invokes inference for those models; this is potentially billable, not a read-only discovery check. All inference goes through XLM, and the harness has no hard-coded provider catalog.
 
 ```powershell
 python .\src\test\python\admin_matrix_check.py --admin-token-file 'C:\XLM\secrets\admin.token' --matrix .\docs\dynamic-administration-matrix.json --demonstrate-switching --snapshot .\target\admin-before-restart.json --output .\target\admin-matrix.json

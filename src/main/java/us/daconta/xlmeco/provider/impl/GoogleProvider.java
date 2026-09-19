@@ -15,7 +15,7 @@ import us.daconta.xlmeco.provider.*;
 import java.io.IOException;
 import java.util.*;
 
-public class GoogleProvider extends AbstractGenerativeProvider implements ChatProvider, EmbeddingProvider, StructuredImageProvider {
+public class GoogleProvider extends AbstractGenerativeProvider implements ChatProvider, EmbeddingProvider, StructuredImageProvider, ImageGenerationProvider {
     public static final String VERSION = "1.0", PROVIDER_NAME = "google";
     public static final String PROJECT_ID = "project_id", LOCATION = "location";
     public static final String PROPERTY_LOCATION = LOCATION, PROPERTY_PROJECT_ID = PROJECT_ID;
@@ -64,7 +64,7 @@ public class GoogleProvider extends AbstractGenerativeProvider implements ChatPr
             return output.toString();
         } catch (JSONException e) { throw ProviderHttp.malformed(); }
     }
-    public Result generateStructuredImage(Input input) throws Failure {
+    public StructuredImageProvider.Result generateStructuredImage(StructuredImageProvider.Input input) throws Failure {
         try {
             JSONArray parts = new JSONArray().put(new JSONObject().put("text", input.instructions()))
                     .put(new JSONObject().put("inline_data", new JSONObject().put("mime_type", input.mimeType())
@@ -73,10 +73,37 @@ public class GoogleProvider extends AbstractGenerativeProvider implements ChatPr
                     .put("responseMimeType", "application/json").put("responseJsonSchema", new JSONObject(input.jsonSchema()))
                     .put("maxOutputTokens", outputTokens));
             JSONObject envelope = http.post(endpoint(chatURL, input.model(), "generateContent"), "x-goog-api-key", apiKey, payload, false);
-            return new Result(ProviderHttp.structured(answer(envelope)), envelope.optString("modelVersion", input.model()));
+            return new StructuredImageProvider.Result(ProviderHttp.structured(answer(envelope)), envelope.optString("modelVersion", input.model()));
         } catch (JSONException | IllegalArgumentException e) { throw ProviderHttp.malformed(); }
     }
     public boolean supportsStructuredImageModel(String model) { return model != null && !model.isBlank(); }
+    @Override
+    public ImageGenerationProvider.Result generateImage(ImageGenerationProvider.Input input) throws Failure {
+        JSONObject payload = contents(new JSONArray().put(new JSONObject().put("text", input.prompt())))
+                .put("generationConfig", new JSONObject().put("responseModalities", new JSONArray().put("TEXT").put("IMAGE")));
+        JSONObject envelope = http.post(endpoint(chatURL, input.model(), "generateContent"), "x-goog-api-key", apiKey,
+                payload, false, ProviderHttp.IMAGE_ENVELOPE_BYTES);
+        try {
+            JSONArray candidates = envelope.getJSONArray("candidates");
+            if (candidates.length() != 1) throw ProviderHttp.malformed();
+            JSONObject candidate = candidates.getJSONObject(0);
+            if (!"STOP".equals(candidate.optString("finishReason"))) throw ProviderHttp.malformed();
+            JSONArray parts = candidate.getJSONObject("content").getJSONArray("parts");
+            JSONObject image = null;
+            for (int i = 0; i < parts.length(); i++) {
+                JSONObject part = parts.getJSONObject(i);
+                if (!part.optBoolean("thought", false) && part.has("inlineData")) {
+                    if (image != null) throw ProviderHttp.malformed();
+                    image = part.getJSONObject("inlineData");
+                }
+            }
+            if (image == null) throw ProviderHttp.malformed();
+            String mime = image.getString("mimeType");
+            byte[] bytes = GeneratedImageValidator.decode(mime, image.getString("data"));
+            String actualModel = envelope.optString("modelVersion", input.model());
+            return new ImageGenerationProvider.Result(mime, bytes, actualModel.isBlank() ? input.model() : actualModel);
+        } catch (JSONException e) { throw ProviderHttp.malformed(); }
+    }
     public String generateChatResponse(ChatRequest request) throws Exception {
         String model = request.getModelName().isBlank() ? defaultLmModel : request.getModelName();
         if (apiKey == null || apiKey.isBlank()) return textInput(projectId, location, model, request.getPrompt());

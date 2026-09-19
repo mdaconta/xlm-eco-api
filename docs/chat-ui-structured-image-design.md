@@ -1,5 +1,7 @@
 # XLM Chat verification UI follow-up
 
+Historical scope: the following records the original analysis-only increment. The current [image-generation and composer design](image-generation-design.md) supersedes its fixed model selection and large upload panel. Current Chat supports explicit image generation, optional prompt suggestions, catalog selection, compact attachments and per-request transcript entries. Structured analysis still uses its original RPC; it is separate from pixel generation.
+
 Status: Design Gate passed with findings and Quality Gate passed on 2026-09-16. Scope: expose the committed Increment 3A one-image structured inference in the existing Flask/Socket.IO chat UI so a user can verify the remote path interactively. This does not add image generation, local VLMs, provider switching, or a new XLM RPC.
 
 ## Existing behavior and change

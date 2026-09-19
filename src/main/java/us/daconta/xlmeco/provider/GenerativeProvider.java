@@ -39,6 +39,7 @@ public interface GenerativeProvider {
         capabilities.put(CAPABILITY_EMBEDDING, supportsEmbeddings());
         capabilities.put(CAPABILITY_RAG, supportsRAG());
         capabilities.put(CAPABILITY_AGENTS, supportsAgents());
+        capabilities.put(ImageGenerationProvider.CAPABILITY, this instanceof ImageGenerationProvider);
         return capabilities;
     }
 

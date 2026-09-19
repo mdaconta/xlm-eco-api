@@ -1,0 +1,19 @@
+[run]
+branch = True
+source = python_client, gui/chat-ui
+omit =
+    */generated/*
+    */test_*.py
+data_file = target/.coverage
+
+[report]
+show_missing = True
+
+[json]
+output = target/python-coverage.json
+
+[html]
+directory = target/python-coverage-html
+
+[xml]
+output = target/python-coverage.xml

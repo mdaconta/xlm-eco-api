@@ -110,8 +110,11 @@ class ChatUiTest(unittest.TestCase):
         self.assertNotIn('private upstream details', result.get_data(as_text=True))
 
     def test_existing_text_route_still_constructs_chat_request(self):
+        connection = chat.socketio.test_client(chat.app, auth={'token': chat.ui_token})
+        token = connection.get_received()[0]['args'][0]['token']
         with patch.object(chat.threading, 'Thread') as thread_class:
-            response = self.client.post('/send_message', json={'message': 'Hello'}, headers=self.headers)
+            response = self.client.post('/send_message', json={'message': 'Hello', 'stream_session': token, 'request_id': 'one'}, headers=self.headers)
+        connection.disconnect()
         self.assertEqual(200, response.status_code)
         thread_class.return_value.start.assert_called_once()
         chat_request = thread_class.call_args.kwargs['args'][0]

@@ -13,6 +13,8 @@ import org.json.JSONObject;
 import us.daconta.xlmeco.provider.EmbeddingProvider;
 import us.daconta.xlmeco.provider.GenerativeProvider;
 import us.daconta.xlmeco.provider.StructuredImageProvider;
+import us.daconta.xlmeco.provider.ImageGenerationProvider;
+import us.daconta.xlmeco.provider.GeneratedImageValidator;
 import us.daconta.xlmeco.grpc.StructuredImageErrorCode;
 
 import java.io.BufferedReader;
@@ -29,7 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.core.JsonProcessingException;
 
-public class OpenAIProvider extends AbstractGenerativeProvider implements ChatProvider, EmbeddingProvider, StructuredImageProvider {
+public class OpenAIProvider extends AbstractGenerativeProvider implements ChatProvider, EmbeddingProvider, StructuredImageProvider, ImageGenerationProvider {
     public static final String VERSION = "1.0";
     public static final String PROVIDER_NAME = "openai";
 
@@ -46,6 +48,8 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
     private static final ObjectMapper JSON = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private String apiKey;
+    private String imageURL;
+    private ProviderHttp imageHttp;
     private String chatURL;
     private String embeddingURL;
     private String defaultLanguageModel;
@@ -63,6 +67,8 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
     public void initialize(Properties configProperties) {
         this.configProperties = configProperties;
         apiKey = configProperties.getProperty(PROPERTY_API_KEY);
+        imageURL = configProperties.getProperty("image_url", "https://api.openai.com/v1/images/generations");
+        imageHttp = new ProviderHttp(configProperties, true);
         chatURL = configProperties.getProperty(PROPERTY_URL_CHAT);
         embeddingURL = configProperties.getProperty(PROPERTY_URL_EMBEDDING);
         defaultLanguageModel = configProperties.getProperty(PROPERTY_DEFAULT_MODEL_LM);
@@ -203,6 +209,21 @@ public class OpenAIProvider extends AbstractGenerativeProvider implements ChatPr
     private static StructuredImageProvider.Failure malformed(String message) {
         return new StructuredImageProvider.Failure(StructuredImageErrorCode.MALFORMED_PROVIDER_RESPONSE,
                 message, false, 0);
+    }
+
+    @Override
+    public ImageGenerationProvider.Result generateImage(ImageGenerationProvider.Input input) throws StructuredImageProvider.Failure {
+        JSONObject payload = new JSONObject().put("model", input.model()).put("prompt", input.prompt())
+                .put("n", 1).put("output_format", "png").put("size", "1024x1024").put("quality", "low");
+        JSONObject envelope = imageHttp.post(imageURL, "Authorization", "Bearer " + apiKey, payload,
+                false, ProviderHttp.IMAGE_ENVELOPE_BYTES);
+        try {
+            JSONArray images = envelope.getJSONArray("data");
+            if (images.length() != 1) throw ProviderHttp.malformed();
+            byte[] bytes = GeneratedImageValidator.decode("image/png", images.getJSONObject(0).getString("b64_json"));
+            String actualModel = envelope.optString("model", input.model());
+            return new ImageGenerationProvider.Result("image/png", bytes, actualModel.isBlank() ? input.model() : actualModel);
+        } catch (JSONException e) { throw ProviderHttp.malformed(); }
     }
 
     @Override

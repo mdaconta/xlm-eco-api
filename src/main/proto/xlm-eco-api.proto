@@ -16,6 +16,11 @@ service XlmEcosystemService {
     // Increment 3A: one image and caller-defined structured JSON output.
     rpc generateStructuredImage (StructuredImageRequest) returns (StructuredImageResponse);
 
+    // Explicit text-to-image operation. No inference from prompt keywords.
+    rpc generateImage (ImageGenerationRequest) returns (ImageGenerationResponse);
+    // Read-only configured model discovery; registration required, no Admin credentials.
+    rpc listModels (ModelCatalogRequest) returns (ModelCatalogResponse);
+
     // ---- Embedding API ----
     rpc getEmbedding(EmbeddingRequest) returns (EmbeddingResponse);
 
@@ -163,6 +168,46 @@ message ChatRequest {
 
 message ChatResponse {
     string completion = 1;
+}
+
+message ImageGenerationRequest {
+    string client_id = 1;
+    string prompt = 2; // Nonblank, at most 64 KiB UTF-8.
+    string provider = 3;
+    string model = 4;
+}
+enum GeneratedOutputType {
+    GENERATED_OUTPUT_UNSPECIFIED = 0;
+    GENERATED_IMAGE = 1;
+}
+message GeneratedImage {
+    string mime_type = 1; // image/png or image/jpeg; validated decoded content.
+    bytes data = 2; // One image, at most 3 MiB. No provider URLs.
+}
+message ImageGenerationResponse {
+    bool success = 1;
+    GeneratedOutputType output_type = 2;
+    GeneratedImage image = 3;
+    string provider = 4;
+    string model = 5;
+    string request_id = 6; // Server execution identity; not an idempotency key.
+    StructuredImageError error = 7; // Shared normalized image-operation errors.
+}
+message ModelCatalogRequest {
+    string client_id = 1;
+    string provider = 2;
+    string capability = 3;
+}
+message ModelCatalogEntry {
+    string provider = 1;
+    string model = 2;
+    string display_name = 3;
+    bool enabled = 4; // Both model and provider enabled, not proof of credentials/quota.
+    repeated string capabilities = 5;
+}
+message ModelCatalogResponse {
+    repeated ModelCatalogEntry models = 1;
+    int64 revision = 2;
 }
 
 message ChatResponsePart {

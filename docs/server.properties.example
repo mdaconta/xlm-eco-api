@@ -13,3 +13,6 @@ feature.vectordb.enabled=false
 # openai.default_lm_model=gpt-4o-mini
 # openai.default_embedding_model=text-embedding-ada-002
 # openai.vision_models=gpt-4o-mini
+# Image-generation models/capabilities/defaults are administered in registry.json through
+# the authenticated Admin API, not through startup properties. Existing registries are
+# never reseeded on upgrade. Add image_generation separately from structured_image.

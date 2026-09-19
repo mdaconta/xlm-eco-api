@@ -15,7 +15,7 @@ import static java.nio.file.StandardOpenOption.*;
 
 /** Single writer, immutable request snapshots, atomic durable configuration; never stores secrets. */
 public final class ProviderRegistry implements AutoCloseable {
-    public static final Set<String> CAPABILITIES = Set.of("chat", "structured_image", "embedding");
+    public static final Set<String> CAPABILITIES = Set.of("chat", "structured_image", "embedding", "image_generation");
     private static final Map<String, Set<String>> SUPPORT = Map.of(
         "openai", CAPABILITIES, "google", CAPABILITIES,
         "anthropic", Set.of("structured_image"), "grok", Set.of("chat"), "ollama", Set.of("chat"));
@@ -201,7 +201,7 @@ public final class ProviderRegistry implements AutoCloseable {
             String id=adapter.getProviderName(); Provider p=state.providers.get(id); if(p==null) continue;
             Properties props=new Properties();
             switch(id) {
-                case "openai" -> { props.setProperty("chat_url","https://api.openai.com/v1/chat/completions"); props.setProperty("embedding_url","https://api.openai.com/v1/embeddings"); }
+                case "openai" -> { props.setProperty("chat_url","https://api.openai.com/v1/chat/completions"); props.setProperty("embedding_url","https://api.openai.com/v1/embeddings"); props.setProperty("image_url","https://api.openai.com/v1/images/generations"); }
                 case "google" -> { props.setProperty("chat_url","https://generativelanguage.googleapis.com/v1beta/models/"); }
                 case "anthropic" -> props.setProperty("chat_url","https://api.anthropic.com/v1/messages");
                 case "grok" -> props.setProperty("chat_url","https://api.x.ai/v1/chat/completions");
@@ -254,6 +254,8 @@ public final class ProviderRegistry implements AutoCloseable {
         }
         for(String id:List.of("gpt-4o-mini","gpt-4.1","gpt-4.1-mini","gpt-4.1-nano")) add(models,"openai",id,Set.of("chat","structured_image"));
         add(models,"openai","text-embedding-ada-002",Set.of("embedding"));
+        add(models,"openai","gpt-image-1",Set.of("image_generation"));
+        add(models,"google","gemini-2.5-flash-image",Set.of("image_generation"));
         for(String id:List.of("gemini-2.5-pro","gemini-2.5-flash","gemini-2.5-flash-lite")) add(models,"google",id,Set.of("chat","structured_image"));
         for(String id:List.of("claude-sonnet-4-6","claude-opus-4-6","claude-haiku-4-5-20251001")) add(models,"anthropic",id,Set.of("structured_image"));
         add(models,"grok","grok-beta",Set.of("chat")); add(models,"ollama","llama3",Set.of("chat"));

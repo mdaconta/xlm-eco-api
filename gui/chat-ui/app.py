@@ -1,3 +1,4 @@
+import base64
 import sys
 import os
 import uuid
@@ -34,6 +35,8 @@ provider = None
 model_name = None
 admin = None
 session = None
+stream_sessions = {}
+stream_lock = threading.Lock()
 app.config['UI_HOSTS'] = {'localhost', '127.0.0.1'}
 
 
@@ -79,51 +82,31 @@ def request_too_large(_error):
     return jsonify({'error': 'Request exceeds 4 MiB limit'}), 413
 
 
-def generate_chat_title(chat_content):
-    """Use syncChat to generate a short title for the conversation."""
-    print("Generating title for the chat content...", flush=True)
-
-    title_prompt = f"Generate a concise 3-5 word title for this response:\n{chat_content}\n  Only return that Title in your response."
-
-    chat_request = pb2.ChatRequest(
-        client_id=client_id,
-        prompt=title_prompt,
-        provider=provider,
-        model_name=model_name
-    )
-
+def generate_chat_title(chat_request, content):
+    """Preserve the existing optional title using the request's explicit model."""
     try:
-        response = stub.syncChat(chat_request)
-        return response.completion.strip()
-    except grpc.RpcError as e:
-        print("Title request failed", flush=True)
-        return "Untitled"
-    except Exception as e:
-        print("Title request failed", flush=True)
-        return "Untitled"
+        result = stub.syncChat(pb2.ChatRequest(client_id=chat_request.client_id,
+            prompt='Generate a concise 3-5 word title for this response:\n' + content + '\nOnly return that title.',
+            provider=chat_request.provider, model_name=chat_request.model_name), timeout=30)
+        return result.completion.strip() or 'Untitled'
+    except Exception:
+        return 'Untitled'
 
 
-def stream_responses(chat_request):
-    """Stream responses from gRPC server and emit to the client."""
-    chat_content = []
+def stream_responses(chat_request, sid, request_id):
+    """Keep every event scoped to the originating connection and transcript entry."""
+    content = []
     try:
-        response_stream = stub.asyncChat(chat_request)
-
-        # Stream each token and build the full response
-        for response_part in response_stream:
-            chat_content.append(response_part.token)
-            socketio.emit('chat_response', {'message': response_part.token})
-            socketio.sleep(0)  # Allow WebSocket to send the message
-
-        # Generate a title after the chat completes
-        full_response = "".join(chat_content).strip()
-        title = generate_chat_title(full_response)
-        socketio.emit('chat_title', {'title': title})
-
-    except grpc.RpcError as e:
-        print("Chat request failed", flush=True)
-    except Exception as e:
-        print("Chat request failed", flush=True)
+        for part in stub.asyncChat(chat_request, timeout=160):
+            content.append(part.token)
+            socketio.emit('chat_response', {'request_id': request_id, 'message': part.token}, to=sid)
+            socketio.sleep(0)
+        socketio.emit('chat_done', {'request_id': request_id}, to=sid)
+        socketio.emit('chat_title', {'request_id': request_id,
+                      'title': generate_chat_title(chat_request, ''.join(content))}, to=sid)
+    except Exception:
+        socketio.emit('chat_error', {'request_id': request_id,
+                      'message': 'XLM text request failed'}, to=sid)
 
 
 @app.route('/')
@@ -131,31 +114,78 @@ def index():
     return render_template('index.html', ui_token=ui_token, provider=provider, model_name=model_name)
 
 
-@app.route('/send_message', methods=['POST'])
-def send_message():
-    if not valid_ui_token():
-        return jsonify({'error': 'Invalid UI token'}), 403
-    prompt = (request.get_json(silent=True) or {}).get('message')
+def selection(data):
+    values = (data.get('provider', provider or ''), data.get('model', model_name or ''))
+    if any(not isinstance(v, str) or len(v) > 128 for v in values):
+        raise ValueError('Provider and model must be strings of at most 128 characters')
+    return values
 
-    if not prompt:
-        print("Error: Prompt cannot be empty", flush=True)
-        return jsonify({"error": "Prompt cannot be empty"}), 400
 
+def transport_failure(error):
+    code = error.code()
+    name = code.name if code in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED) else 'OTHER'
+    return jsonify({'error': 'XLM transport request failed', 'transport_code': name}), (504 if code == grpc.StatusCode.DEADLINE_EXCEEDED else 502)
+
+
+@app.route('/models')
+def models():
     unavailable = inference_unavailable()
     if unavailable is not None:
         return unavailable
+    try:
+        result = stub.listModels(pb2.ModelCatalogRequest(client_id=client_id), timeout=10)
+        return jsonify(MessageToDict(result, preserving_proto_field_name=True,
+                                     always_print_fields_with_no_presence=True))
+    except grpc.RpcError as error:
+        return transport_failure(error)
 
-    chat_request = pb2.ChatRequest(
-        client_id=client_id,
-        prompt=prompt,
-        provider=provider,
-        model_name=model_name
-    )
 
-    # Start the streaming in a background thread
-    threading.Thread(target=stream_responses, args=(chat_request,)).start()
-
-    return jsonify({"status": "streaming started"}), 200
+@app.route('/send_message', methods=['POST'])
+@app.route('/generate_image', methods=['POST'])
+def send_message():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return invalid_request('Expected a JSON object')
+    prompt = data.get('message')
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode('utf-8')) > MAX_TEXT_BYTES:
+        return invalid_request('Prompt is required and limited to 64 KiB')
+    if data.get('image'):
+        return invalid_request('Use image analysis for attachments; image editing is not supported')
+    try:
+        selected_provider, selected_model = selection(data)
+    except ValueError as error:
+        return invalid_request(str(error))
+    unavailable = inference_unavailable()
+    if unavailable is not None:
+        return unavailable
+    if request.path == '/generate_image':
+        started = time.monotonic()
+        try:
+            result = stub.generateImage(pb2.ImageGenerationRequest(client_id=client_id,
+                prompt=prompt, provider=selected_provider, model=selected_model), timeout=160)
+        except grpc.RpcError as error:
+            return transport_failure(error)
+        body = {'success': result.success, 'provider': result.provider, 'model': result.model,
+                'request_id': result.request_id, 'latency_ms': round((time.monotonic() - started) * 1000),
+                'error_code': pb2.StructuredImageErrorCode.Name(result.error.code),
+                'retryable': result.error.retryable}
+        if result.success:
+            if (result.output_type != pb2.GENERATED_IMAGE or result.image.mime_type not in ('image/png', 'image/jpeg')
+                    or not result.image.data or len(result.image.data) > MAX_IMAGE_BYTES):
+                return jsonify({'error': 'XLM returned an invalid generated image'}), 502
+            body.update(output_type='image', mime_type=result.image.mime_type,
+                        image_base64=base64.b64encode(result.image.data).decode('ascii'))
+        return jsonify(body)
+    stream_token = data.get('stream_session')
+    with stream_lock:
+        sid = stream_sessions.get(stream_token) if isinstance(stream_token, str) else None
+    request_id = data.get('request_id')
+    if not sid or not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+        return invalid_request('Connect to chat before sending a text request')
+    chat_request = pb2.ChatRequest(client_id=client_id, prompt=prompt,
+                                  provider=selected_provider, model_name=selected_model)
+    threading.Thread(target=stream_responses, args=(chat_request, sid, request_id), daemon=True).start()
+    return jsonify({'status': 'streaming started', 'request_id': request_id})
 
 
 @app.route('/analyze_image', methods=['POST'])
@@ -238,7 +268,21 @@ def protect_console():
 
 @socketio.on('connect')
 def socket_connect(auth=None):
-    return trusted_request() and isinstance(auth, dict) and hmac.compare_digest(str(auth.get('token', '')), ui_token)
+    if not (trusted_request() and isinstance(auth, dict) and hmac.compare_digest(str(auth.get('token', '')), ui_token)):
+        return False
+    token = secrets.token_urlsafe(32)
+    with stream_lock:
+        stream_sessions[token] = request.sid
+    socketio.emit('stream_session', {'token': token}, to=request.sid)
+    return True
+
+
+@socketio.on('disconnect')
+def socket_disconnect(reason=None):
+    with stream_lock:
+        expired = [token for token, sid in stream_sessions.items() if sid == request.sid]
+        for token in expired:
+            del stream_sessions[token]
 
 
 @app.route('/admin')

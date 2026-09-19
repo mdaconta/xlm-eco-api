@@ -58,7 +58,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
     }
     private static void ensureCredentials(ProviderRegistry.Snapshot s, ProviderRegistry.Selection selected, String cap) {
         var config=s.state().providers().get(selected.provider()).configuration();
-        boolean legacyGoogleAdc=selected.provider().equals("google")&&!cap.equals("structured_image")
+        boolean legacyGoogleAdc=selected.provider().equals("google")&&(cap.equals("chat")||cap.equals("embedding"))
                 &&config.containsKey("project_id")&&config.containsKey("location");
         if(!selected.provider().equals("ollama")&&!legacyGoogleAdc&&!s.credentials().getOrDefault(selected.provider(),false))
             throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.PRECONDITION,"Provider credential is not configured");
@@ -103,7 +103,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
     @Override public void listProviders(EmptyRequest r,StreamObserver<ProvidersListResponse> o) {
         var s=registry.snapshot(); var response=ProvidersListResponse.newBuilder();
         s.state().providers().values().stream().sorted(Comparator.comparing(ProviderRegistry.Provider::id)).forEach(p -> {
-            Map<String,Boolean> caps=new HashMap<>(); for(String c:List.of("chat","embedding","structured_image","rag","agents"))caps.put(c,ProviderRegistry.capabilities(p.id()).contains(c)&&p.enabled());
+            Map<String,Boolean> caps=new HashMap<>(); for(String c:List.of("chat","embedding","structured_image","image_generation","rag","agents"))caps.put(c,ProviderRegistry.capabilities(p.id()).contains(c)&&p.enabled());
             response.addProviders(ProviderInfo.newBuilder().setProviderName(p.id()).setServiceLevel(s.adapters().get(p.id()).getServiceLevel().name()).putAllCapabilities(caps));
         });
         reply(o,response.build());
@@ -112,7 +112,7 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
         try {
             client(r.getClientId()); var s=registry.snapshot(); var p=s.state().providers().get(r.getProvider());
             if(p==null) throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.NOT_FOUND,"Unknown provider");
-            Map<String,Boolean> caps=new HashMap<>(); for(String c:List.of("chat","embedding","structured_image","rag","agents"))caps.put(c,p.enabled()&&ProviderRegistry.capabilities(p.id()).contains(c));
+            Map<String,Boolean> caps=new HashMap<>(); for(String c:List.of("chat","embedding","structured_image","image_generation","rag","agents"))caps.put(c,p.enabled()&&ProviderRegistry.capabilities(p.id()).contains(c));
             reply(o,ProviderCapabilitiesResponse.newBuilder().setProviderName(p.id()).setServiceLevel(s.adapters().get(p.id()).getServiceLevel().name()).putAllCapabilities(caps).build());
         } catch(Exception e) { safeFailure(o,e); }
     }
@@ -146,6 +146,69 @@ public class XlmEcosystemServiceImpl extends XlmEcosystemServiceGrpc.XlmEcosyste
         if(failure!=null) response.setSuccess(false).setStatus(StructuredImageStatus.STRUCTURED_IMAGE_FAILED).setError(failure);
         reply(o,response.build());
     }
+    @Override public void listModels(ModelCatalogRequest r, StreamObserver<ModelCatalogResponse> o) {
+        try {
+            client(r.getClientId());
+            if (!r.getCapability().isEmpty()) ProviderRegistry.checkCapability(r.getCapability());
+            var snapshot = registry.snapshot();
+            if (!r.getProvider().isEmpty() && !snapshot.state().providers().containsKey(r.getProvider()))
+                throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.NOT_FOUND, "Unknown provider");
+            var result = ModelCatalogResponse.newBuilder().setRevision(snapshot.state().revision());
+            snapshot.state().models().values().stream()
+                    .sorted(Comparator.comparing(m -> ProviderRegistry.key(m.provider(), m.id())))
+                    .filter(m -> r.getProvider().isEmpty() || r.getProvider().equals(m.provider()))
+                    .filter(m -> r.getCapability().isEmpty() || m.capabilities().contains(r.getCapability()))
+                    .forEach(m -> result.addModels(ModelCatalogEntry.newBuilder().setProvider(m.provider())
+                            .setModel(m.id()).setDisplayName(m.displayName())
+                            .setEnabled(m.enabled() && snapshot.state().providers().get(m.provider()).enabled())
+                            .addAllCapabilities(new TreeSet<>(m.capabilities()))));
+            reply(o, result.build());
+        } catch (Exception e) { safeFailure(o, e); }
+    }
+
+    @Override public void generateImage(ImageGenerationRequest r, StreamObserver<ImageGenerationResponse> o) {
+        var response = ImageGenerationResponse.newBuilder().setRequestId(UUID.randomUUID().toString());
+        try {
+            if (r.getClientId().isBlank() || r.getClientId().length() > 128
+                    || r.getProvider().length() > 128 || r.getModel().length() > 128
+                    || r.getPrompt().isBlank() || r.getPrompt().getBytes(StandardCharsets.UTF_8).length > 65_536)
+                throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.INVALID, "Required field is missing or exceeds limit");
+            response.setProvider(r.getProvider().trim().toLowerCase(Locale.ROOT)).setModel(r.getModel().trim());
+            client(r.getClientId());
+            var snapshot = registry.snapshot();
+            var selection = ProviderRegistry.resolve(snapshot, ImageGenerationProvider.CAPABILITY,
+                    r.getProvider(), r.getModel(), null);
+            response.setProvider(selection.provider()).setModel(selection.model());
+            ensureCredentials(snapshot, selection, ImageGenerationProvider.CAPABILITY);
+            if (!(snapshot.adapters().get(selection.provider()) instanceof ImageGenerationProvider adapter))
+                throw new ProviderRegistry.Invalid(ProviderRegistry.Invalid.Kind.PRECONDITION, "Incompatible capability");
+            var result = adapter.generateImage(new ImageGenerationProvider.Input(r.getPrompt(), selection.model()));
+            GeneratedImageValidator.validate(result.mimeType(), result.data());
+            if (result.model() == null || !result.model().matches("[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}"))
+                throw GeneratedImageValidator.malformed();
+            response.setSuccess(true).setOutputType(GeneratedOutputType.GENERATED_IMAGE).setModel(result.model())
+                    .setImage(GeneratedImage.newBuilder().setMimeType(result.mimeType())
+                            .setData(com.google.protobuf.ByteString.copyFrom(result.data())));
+        } catch (ProviderRegistry.Invalid e) {
+            StructuredImageErrorCode code = switch(e.getMessage()) {
+                case "Unknown provider" -> StructuredImageErrorCode.UNSUPPORTED_PROVIDER;
+                case "Unknown model" -> StructuredImageErrorCode.UNSUPPORTED_MODEL;
+                case "Provider disabled" -> StructuredImageErrorCode.PROVIDER_DISABLED;
+                case "Model disabled" -> StructuredImageErrorCode.MODEL_DISABLED;
+                case "Incompatible capability" -> StructuredImageErrorCode.INCOMPATIBLE_CAPABILITY;
+                case "Provider credential is not configured" -> StructuredImageErrorCode.PROVIDER_AUTHENTICATION;
+                default -> StructuredImageErrorCode.INVALID_REQUEST;
+            };
+            response.setError(error(code, e.getMessage(), false, 0));
+        } catch (StructuredImageProvider.Failure e) {
+            // Messages crossing this public boundary are local and finite, never upstream text.
+            response.setError(error(e.code(), "Image generation failed: " + e.code().name(), e.retryable(), e.httpStatus()));
+        } catch (Exception e) {
+            response.setError(error(StructuredImageErrorCode.PROVIDER_FAILURE, "Image generation failed", false, 0));
+        }
+        reply(o, response.build());
+    }
+
     private static StructuredImageError validateStructuredImage(StructuredImageRequest request) {
         if (request.getClientId().isBlank() || request.getClientId().length() > 128
                 || request.getProvider().length() > 128

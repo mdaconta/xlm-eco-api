@@ -1,11 +1,6 @@
 # Welcome to the Cross-LM (XLM) Ecosystem API Project!
 
-This project offers **three key benefits**:
-1. Cross LLM/SLM Generative AI Operations!
-    1. Currently openai, google's gemini, ... more soon.
-3. Cross Programming Language Generative AI Operations!
-    1. Currently Java, Python ... more soon.
-5. Standardized APIs across the Complete Ecosystem of Generative AI Operations!
+XLM provides provider-neutral gRPC operations for text, structured image analysis, image generation, and embeddings, with Java, Python, and Node clients. A persistent provider/model catalog controls capability selection; an authenticated administration API and local Console manage it. XLM Chat supports image attachments for analysis and explicit text-to-image generation. Implemented adapters and configured models are separate from remote operational verification; see the [current verification record](docs/image-generation-verification.md).
 
 ## Table of Contents
 - [Introduction](#introduction)
@@ -13,6 +8,11 @@ This project offers **three key benefits**:
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Model capabilities](#model-capabilities)
+- [Structured image analysis](#structured-image-analysis-increment-3a)
+- [Image generation](#image-generation)
+- [XLM Chat](#xlm-chat)
+- [Verification and coverage](#verification-and-coverage)
 - [Conclusion](#conclusion)
 
 ## Introduction
@@ -22,14 +22,14 @@ Here is the LLM Ecosystem diagram from my article entitled [What is the LLM Ecos
 
 ## Architecture
 
-In order to fulfill the objectives cited above (Cross-Language model, Cross-Programming-Language and Complete Ecosystem Services), we will use a gRPC client-server architecture as depicted in this ![figure.](https://www.daconta.us/Articles/XLM-Architecture-1.jpg) 
+Java, Python, and Node clients call the Java server through provider-neutral protobuf/gRPC contracts. XLM validates registration, model selection and capabilities before invoking a provider adapter. Adapters translate provider requests and normalize responses. The authenticated Admin service manages the persistent provider/model catalog; inference discovery reads that catalog without exposing secrets. The local Flask Chat and Admin Console use these same service boundaries. See the [current capability design](docs/image-generation-design.md) and [administration architecture](docs/dynamic-administration-design.md).
 
 ## Features
 
 This project is under active development and will change considerably over the next 
 several months so make sure you check back to get the latest. 
 
-Here is the Feature Roadmap:
+Implemented: synchronous/streaming text, one-image structured JSON, explicit image generation, model capability discovery, persistent administration, and the compact Chat attachment composer. Here is the broader Feature Roadmap:
 1. [x] Chat API
     1. [x] Synchronous Completion
     2. [x] Asynchronous/Streaming Completion
@@ -39,7 +39,7 @@ Here is the Feature Roadmap:
          3. Type (LLM, SLM, etc.)
          4. Max Prompt Size
          5. Knowledge Cutoff Date
-         6. LM Capabilities/Profile
+         6. Configured capabilities are implemented; richer model profiles remain future work.
          7. Max Completion Token Limit
 2. [ ] Conversation API
     1. [ ] Shared chats
@@ -55,7 +55,7 @@ Here is the Feature Roadmap:
         2. Markdown
         3. HTML
         4. Formulas
-        5. Image
+        5. Images in a shared, persisted conversation (future). Standalone `generateImage` and inline Chat display are implemented separately.
         6. Tables
         7. JSON
 3. [ ] LM Customization API
@@ -123,11 +123,22 @@ To build this software you will first have to insure you have the following pre-
 
 ## Usage
 
+Use the [complete run-and-test guide](docs/run-and-test.md) for dependency checks, the Windows server helper, Chat/Admin startup, all language clients, local coverage/browser tests, and explicitly opt-in remote verification.
+
 To run the gRPC server you type:
 ```bash
 java -jar ./target/xlm-eco-api-1.0-SNAPSHOT.jar
 ```
 Set the external directory environment variables before launching. Loopback listeners default to inference port 50052 and authenticated Admin port 50053. All non-loopback listeners require TLS. See the [configuration and migration guide](docs/dynamic-administration.md).
+
+On Windows, the [local server helper](docs/local-server.md) reuses the existing `~/.xlm/config` and `~/.xlm/secrets` directories (or explicit environment/path overrides), checks prerequisites without reading keys, and starts Java with the Windows trusted-root store. From Git Bash:
+
+```bash
+powershell.exe -NoProfile -File scripts/local-server.ps1 -Action Check
+powershell.exe -NoProfile -File scripts/local-server.ps1 -Action Run
+```
+
+It does not recreate credentials, reset the catalog, or stop unrelated processes. First-time provisioning remains operator-owned and is described in the helper guide.
 
 To run the java test gRPC client you type:
 ```bash
@@ -137,7 +148,7 @@ java -cp ./target/xlm-eco-api-1.0-SNAPSHOT.jar us.daconta.xlmeco.GrpcXlmClient 1
 The python grpc stubs are created via maven and stored in the python_client/generated directory.
 To run the python client, there is a simple bash script to setup the path. 
 ```bash
-./run_client.sh --host 127.0.0.1 --port 50052 --provider openai --model_name gpt-4o-mini --prompt "Tell me about space exploration."
+./python_client/run_client.sh --host 127.0.0.1 --port 50052 --provider openai --model_name gpt-4o-mini --prompt "Tell me about space exploration."
 ```
 
 The node grpc stubs will be created dynamically during runtime.
@@ -158,8 +169,84 @@ On success, `StructuredImageResponse` contains a JSON-object `json_payload`, pro
 
 The design, gap analysis and verification record are in `docs/increment-3a-*.md`.
 
-The local [XLM Chat verification walkthrough](docs/chat-ui-user-verification.md) covers one-image analysis, a provider error case, and existing text chat in the browser. This capability analyzes an image and returns structured JSON; it does not generate images.
+The local [XLM Chat verification walkthrough](docs/chat-ui-user-verification.md) covers image input, generation, unsupported capabilities and text regression. Image input returns structured JSON; the separate image-generation operation returns pixels.
+
+## Model capabilities
+
+Configured models advertise independent capabilities using the repository's existing names:
+
+| XLM capability | Meaning | Explicit operation |
+|---|---|---|
+| `chat` | Text generation (`TEXT_GENERATION`) | `syncChat` / `asyncChat` |
+| `structured_image` | One image input with structured JSON output (`IMAGE_INPUT`) | `generateStructuredImage` |
+| `image_generation` | Text-to-image generation (`IMAGE_GENERATION`) | `generateImage` |
+| `embedding` | Vector embedding | `getEmbedding` |
+
+Register a client, then call inference `listModels(ModelCatalogRequest(client_id=..., capability="image_generation"))` to discover configured models. Each entry carries provider, model, display name, effective enabled state, and capability list. This read-only RPC needs no Admin token. It does not promise credentials, quota or provider availability. Administrators use authenticated Admin `listModels`/`upsertModel` to edit the catalog.
+
+Vision support does not imply generation. The new seed includes `openai/gpt-image-1` and `google/gemini-2.5-flash-image` for generation only; neither is advertised for XLM structured JSON image analysis. Existing registry files are not reseeded: add the desired model and capability through Admin. No image-generation default is selected automatically. Only OpenAI and Google implement generation in this increment; other adapters reject that capability. Unsupported selected models return `INCOMPATIBLE_CAPABILITY`; disabled/unknown models and provider failures have distinct normalized errors. XLM never silently changes the selected model.
+
+## Image generation
+
+`generateImage` is an explicit unary text-to-image operation. `ImageGenerationRequest` carries `client_id`, `provider`, `model`, and a nonblank `prompt` up to 64 KiB UTF-8. Explicit provider/model wins; omit both to use an administrator-configured `image_generation` default. Provider-only selection requires a default for that same provider; model-only selection is invalid. There is no English-keyword routing in the server.
+
+Success returns `output_type=GENERATED_IMAGE`, one `image` with `mime_type` and inline `data`, provider/model provenance, and a server `request_id`. Images are validated PNG/JPEG, at most 3 MiB, 4096 pixels per side and 16 megapixels. The request ID identifies execution, not retry deduplication. Failures carry the shared `StructuredImageError` type and no image. The OpenAI adapter requests one 1024×1024 low-quality PNG; Google returns one inline image. No provider URLs or provider-specific options are exposed. Oversized, corrupt, missing or multiple image outputs fail safely.
+
+Example using the generated Python client after `mvn compile` and model provisioning:
+
+```python
+import sys
+import uuid
+from pathlib import Path
+sys.path.insert(0, "python_client/generated")
+sys.path.insert(0, "python_client")
+from admin_transport import channel
+import xlm_eco_api_pb2 as pb
+import xlm_eco_api_pb2_grpc as rpc
+
+# Loopback example; pass a trusted CA file to channel() for a remote TLS endpoint.
+with channel("127.0.0.1:50052") as connection:
+    client = rpc.XlmEcosystemServiceStub(connection)
+    client_id = str(uuid.uuid4())
+    assert client.registerClient(pb.ClientRegistrationRequest(client_id=client_id), timeout=5).success
+    try:
+        result = client.generateImage(pb.ImageGenerationRequest(
+            client_id=client_id, provider="openai", model="gpt-image-1",
+            prompt="Draw a blue circle on a white background."), timeout=160)
+        if not result.success:
+            raise RuntimeError(pb.StructuredImageErrorCode.Name(result.error.code))
+        assert result.output_type == pb.GENERATED_IMAGE
+        suffix = {"image/png": ".png", "image/jpeg": ".jpg"}[result.image.mime_type]
+        Path("generated-image" + suffix).write_bytes(result.image.data)
+        print(result.provider, result.model, result.image.mime_type, result.request_id)
+    finally:
+        client.unregisterClient(pb.ClientUnregistrationRequest(client_id=client_id), timeout=5)
+```
+
+## XLM Chat
+
+Start the existing local Flask Chat client as described in the [walkthrough](docs/chat-ui-user-verification.md). Select a configured provider/model and enable **Generate image** to create an image. The composer blocks unsupported capability selections without switching models. An imperative prompt such as “Draw a diagram” offers a suggestion; accepting it is optional. Informational prompts such as “Explain image compression” remain text. Prompt auditing is a UI convenience; API clients always choose an explicit RPC.
+
+The composer uses `[ + ] [ prompt… ] [ Send ]`. Choose one PNG/JPEG/WebP with `+` to analyze it, inspect its thumbnail/filename, or remove it. Send the attachment with the shared prompt for structured recognition; expand the JSON Schema control when needed. Attachment analysis and image generation are separate operations; combining them is blocked in this increment. Generated images appear inline with their prompt, provider/model and execution identity. Failed requests remain associated with their transcript entry, and errors are sanitized.
+
+## Verification and coverage
+
+Use Java 17-compatible source tooling (verified here with Java 21), Maven and Python. Generate stubs before running Python tests. Install development coverage tooling, then run the independent language gates:
+
+```bash
+python -m pip install -r python_client/requirements.txt -r requirements-test.txt Flask==3.1.2 Flask-SocketIO==5.5.1
+python -m coverage --version
+mvn clean verify
+python scripts/check_python_coverage.py
+node gui/chat-ui/test_admin_ui.cjs
+node gui/chat-ui/test_chat_ui.cjs
+node src/test/node/client_compatibility.js
+```
+
+JaCoCo enforces aggregate handwritten Java **LINE >=90% and BRANCH >=90%**, writing `target/site/jacoco/index.html` and `target/site/jacoco/jacoco.xml`. Generated protobuf classes are excluded. Python uses the existing unittest suites with coverage.py branch measurement, covering `python_client` and `gui/chat-ui`, excluding generated stubs and tests. Its runner enforces **statement >=90% and branch >=90% independently**, and produces HTML, JSON and XML reports under `target`; see [coverage evidence and exact report paths](docs/image-generation-coverage.md). A configured threshold is not proof that the current run passes. Baseline, latest results, exceptions and uncovered-path review are recorded there.
+
+Local HTTP fixtures and real loopback gRPC tests are separate from real provider tests. See the [verification matrix](docs/image-generation-verification.md) for exercised capabilities and pending remote/browser/coverage acceptance. No provider capability is marked remotely verified based solely on documentation or mocks.
 
 ## Conclusion
 
-Feedback on the project is welcome.  You can contact me via the contact form [here](https://www.daconta.us/Articles/ContactForm.html).
+Feedback on the project is welcome. Visit the [author's website](https://www.daconta.us/) for contact information.
